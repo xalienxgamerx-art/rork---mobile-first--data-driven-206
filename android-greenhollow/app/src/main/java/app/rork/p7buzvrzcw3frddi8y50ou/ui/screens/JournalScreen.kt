@@ -141,11 +141,27 @@ fun NpcDetailScreen(engine: GameEngine, npcId: String, onBack: () -> Unit) {
             ParchmentCard {
                 SectionTitle("Life")
                 Spacer(Modifier.height(6.dp))
+                if (n.lifeStage.isNotBlank()) KeyValue("Stage of life", n.lifeStage)
                 KeyValue("Home", n.home.ifEmpty { "None" })
+                if (n.household.isNotBlank()) KeyValue("Household", n.household)
                 KeyValue("Works at", n.work.ifEmpty { "Nowhere" })
                 KeyValue("Purse", "${n.gold} gold")
                 if (n.def.likes.isNotBlank()) KeyValue("Loves", n.def.likes)
                 if (n.def.fears.isNotBlank()) KeyValue("Fears", n.def.fears)
+                if (n.family.isNotEmpty()) {
+                    HorizontalDivider(Modifier.padding(vertical = 6.dp), color = Ink.Line)
+                    Text("Family", style = MaterialTheme.typography.titleSmall, color = Ink.Muted)
+                    n.family.forEach {
+                        Text(it, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(vertical = 3.dp))
+                    }
+                }
+                if (n.goals.isNotEmpty()) {
+                    HorizontalDivider(Modifier.padding(vertical = 6.dp), color = Ink.Line)
+                    Text("Ambitions", style = MaterialTheme.typography.titleSmall, color = Ink.Muted)
+                    n.goals.forEach {
+                        Text(it, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(vertical = 3.dp))
+                    }
+                }
             }
             if (n.def.personality.isNotEmpty()) {
                 ParchmentCard {

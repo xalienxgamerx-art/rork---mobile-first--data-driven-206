@@ -1280,6 +1280,57 @@
           "target": "home"
         }
       ]
+    },
+    {
+      "id": "child_routine",
+      "name": "Days underfoot",
+      "entries": [
+        {
+          "start": 20,
+          "end": 7,
+          "activity": "sleep",
+          "target": "home"
+        },
+        {
+          "start": 7,
+          "end": 8,
+          "activity": "eat",
+          "target": "home"
+        },
+        {
+          "start": 8,
+          "end": 9,
+          "activity": "housework",
+          "target": "home"
+        },
+        {
+          "start": 9,
+          "end": 12,
+          "activity": "wander"
+        },
+        {
+          "start": 12,
+          "end": 13,
+          "activity": "eat",
+          "target": "home"
+        },
+        {
+          "start": 13,
+          "end": 16,
+          "activity": "socialize"
+        },
+        {
+          "start": 16,
+          "end": 19,
+          "activity": "wander"
+        },
+        {
+          "start": 19,
+          "end": 20,
+          "activity": "eat",
+          "target": "home"
+        }
+      ]
     }
   ],
   "npcs": [
@@ -1298,6 +1349,9 @@
       "greeting": "Mind the sparks. What do you need hammered?",
       "likes": "good steel",
       "fears": "a cold forge",
+      "goals": [
+        { "type": "improve_skill", "target": "smithing", "priority": 40 }
+      ],
       "personality": {
         "ambition": 0.7,
         "courage": 0.8,
@@ -1324,6 +1378,9 @@
       "greeting": "Sit, sit. The stew is still warm.",
       "likes": "gossip",
       "fears": "an empty common room",
+      "goals": [
+        { "type": "support_household", "priority": 45 }
+      ],
       "personality": {
         "ambition": 0.5,
         "courage": 0.5,
@@ -1452,6 +1509,9 @@
       "greeting": "Heading to the woods? Take me along next time!",
       "likes": "tall tales",
       "fears": "being left behind",
+      "goals": [
+        { "type": "independence", "priority": 50 }
+      ],
       "personality": {
         "ambition": 0.6,
         "courage": 0.5,
@@ -1545,7 +1605,64 @@
         "curiosity": 0.7,
         "loyalty": 0.5
       }
+    },
+    {
+      "id": "petra",
+      "name": "Petra",
+      "profession": "villager",
+      "age": 12,
+      "home": "house_nw",
+      "schedule": "child_routine",
+      "skin": "#D9A57F",
+      "hair": "#3A2A1E",
+      "relation": "stranger",
+      "affinity": 20,
+      "gold": 0,
+      "greeting": "Papa says I am not to trouble the forge.",
+      "likes": "climbing the old well",
+      "fears": "the dark of the cellar",
+      "personality": {
+        "ambition": 0.4,
+        "courage": 0.6,
+        "sociability": 0.7,
+        "generosity": 0.7,
+        "greed": 0.2,
+        "aggression": 0.2,
+        "curiosity": 0.9,
+        "loyalty": 0.8
+      }
     }
+  ],
+  "households": [
+    {
+      "id": "hh_bram",
+      "name": "Bram's House",
+      "home": "house_nw",
+      "members": ["bram", "petra"],
+      "head": "bram",
+      "type": "family"
+    },
+    {
+      "id": "hh_elsa",
+      "name": "Elsa's rooms at the Stag",
+      "home": "inn",
+      "members": ["elsa"],
+      "head": "elsa",
+      "type": "single"
+    },
+    {
+      "id": "hh_farmstead",
+      "name": "Hilde's Farmstead",
+      "home": "house_se",
+      "members": ["hilde", "wyl"],
+      "head": "hilde",
+      "type": "extended"
+    }
+  ],
+  "kinship": [
+    { "from": "bram", "to": "elsa", "kind": "spouse" },
+    { "from": "bram", "to": "petra", "kind": "parent" },
+    { "from": "hilde", "to": "wyl", "kind": "aunt_uncle" }
   ],
   "population": [
     {

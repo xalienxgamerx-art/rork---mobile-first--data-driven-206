@@ -138,6 +138,174 @@ data class SocialSave(
     val milestones: MutableSet<String> = mutableSetOf(),
 )
 
+/**
+ * One entry in a household's own small history: what happened, and when. Kept by the household
+ * itself (not by any one person), capped, and light — the members' own memories hold the feeling.
+ */
+@Serializable
+data class HouseholdEvent(val minute: Double, val text: String)
+
+/**
+ * A household: the people who share a residence and some degree of domestic life. A household
+ * is not a family — unrelated people may share a roof, and kin may live apart — so membership
+ * and kinship are kept in separate records that never imply one another.
+ *
+ * The save holds the instances; the content packs hold the definitions they are built from.
+ * Circumstances (food, supplies, the state of the home) move only through the members' own
+ * actions, so there is no second clock and the cost stays proportional to the household.
+ */
+@Serializable
+data class HouseholdSave(
+    val id: String,
+    var name: String = "",
+    /** The building they live in. A household may be between homes (empty) for a while. */
+    var home: String = "",
+    /** Who lives here. The single source of truth; a person belongs to at most one household. */
+    val members: MutableSet<String> = mutableSetOf(),
+    /** The household's primary organiser, where one is recognised. Empty is valid. */
+    var head: String = "",
+    /** family, couple, single, shared, extended — a word for the journal, free for packs to widen. */
+    var type: String = "shared",
+    /** Food in the larder, 0..100. Cooking fills it, eating drains it. */
+    var food: Float = 70f,
+    /** The state of the home itself, 0..100. Housework and repairs raise it. */
+    var condition: Float = 80f,
+    /** Duty type (cooking, gathering, ...) -> who has taken it on. */
+    val duties: MutableMap<String, String> = mutableMapOf(),
+    /** The household's own history, oldest first, trimmed from the front. */
+    val history: MutableList<HouseholdEvent> = mutableListOf(),
+) {
+    fun sanitize() {
+        food = fin100(food, 70f)
+        condition = fin100(condition, 80f)
+        if (type.isBlank()) type = "shared"
+    }
+
+    private fun fin100(v: Float, fallback: Float): Float =
+        if (v.isNaN() || v.isInfinite()) fallback else v.coerceIn(0f, 100f)
+
+    companion object {
+        const val MAX_HISTORY = 12
+    }
+}
+
+/**
+ * One family connection, stored in its canonical direction only: "Bram parent of Petra" needs no
+ * "Petra child of Bram" beside it, and a pair of partners needs one record, not two. The kinds
+ * that read the same both ways ([Kin.SPOUSE], [Kin.SIBLING], [Kin.HALF_SIBLING], [Kin.COUSIN])
+ * are normalised to the sorted pair on entry; the rest read back through their reciprocal word.
+ * Unknown ancestry is simply no record at all, and is always valid.
+ */
+@Serializable
+data class KinEdge(var from: String, var to: String, var kind: String)
+
+/** The family connections of the vale. Keyed "from>to:kind" so a bond exists once and only once. */
+@Serializable
+data class KinshipSave(
+    val edges: MutableMap<String, KinEdge> = mutableMapOf(),
+)
+
+/** The words a family connection can be written in, and what each reads back as. */
+object Kin {
+    const val PARENT = "parent"
+    const val ADOPTIVE = "adoptive_parent"
+    const val GUARDIAN = "guardian"
+    const val SPOUSE = "spouse"
+    const val SIBLING = "sibling"
+    const val HALF_SIBLING = "half_sibling"
+    const val GRANDPARENT = "grandparent"
+    const val AUNT_UNCLE = "aunt_uncle"
+    const val COUSIN = "cousin"
+
+    /** Every word a pack may declare. */
+    val ALL = setOf(PARENT, ADOPTIVE, GUARDIAN, SPOUSE, SIBLING, HALF_SIBLING, GRANDPARENT, AUNT_UNCLE, COUSIN)
+
+    /** Kinds kept as one record for the pair, whichever way round they were written. */
+    val SYMMETRIC = setOf(SPOUSE, SIBLING, HALF_SIBLING, COUSIN)
+
+    /** What the same bond is called from the other end, for the words a pack never writes. */
+    fun reciprocal(kind: String): String = when (kind) {
+        PARENT -> "child"
+        ADOPTIVE -> "adopted_child"
+        GUARDIAN -> "ward"
+        SPOUSE -> "partner"
+        SIBLING -> "sibling"
+        HALF_SIBLING -> "half-sibling"
+        GRANDPARENT -> "grandchild"
+        AUNT_UNCLE -> "niece or nephew"
+        COUSIN -> "cousin"
+        else -> "kin"
+    }
+
+    /** The journal's words for a bond, read from the holder's side. */
+    fun label(kind: String): String = reciprocal(kind)
+}
+
+/** Where in life a person stands, read from the age every person already has. */
+object LifeStages {
+    const val INFANT = "infant"
+    const val CHILD = "child"
+    const val ADOLESCENT = "adolescent"
+    const val ADULT = "adult"
+    const val ELDER = "elder"
+
+    fun stageOf(age: Int): String = when {
+        age < 6 -> INFANT
+        age < 13 -> CHILD
+        age < 18 -> ADOLESCENT
+        age < 60 -> ADULT
+        else -> ELDER
+    }
+
+    /** True for anyone not yet grown: they are looked after, and kept from harm's way. */
+    fun isDependant(stage: String): Boolean = stage == INFANT || stage == CHILD || stage == ADOLESCENT
+
+    fun label(stage: String): String = when (stage) {
+        INFANT -> "little one"
+        CHILD -> "child"
+        ADOLESCENT -> "youngster"
+        ADULT -> "adult"
+        ELDER -> "elder"
+        else -> stage
+    }
+}
+
+/** A wish a person carries for years, seeded by content or grown from their character. */
+@Serializable
+data class GoalState(
+    /** Stable within the person's life: "g:<type>[:<target>]". */
+    val id: String,
+    /** improve_skill, save_gold, social_confidence, closer_to_relative, support_household, independence. */
+    val type: String,
+    /** What the wish points at: a skill id, a person id — empty when it needs none. */
+    var target: String = "",
+    /** Lower wins when two wishes compete for the same day. */
+    val priority: Int = 50,
+    /** 0..100; at 100 the wish is achieved. */
+    var progress: Float = 0f,
+    /** active, done. Done goals are remembered, not pursued. */
+    var status: String = "active",
+    /** World minute the wish was formed. */
+    val minute: Double = 0.0,
+    /** World minute it was achieved, when it was. */
+    var doneAt: Double = 0.0,
+) {
+    fun sanitize() {
+        if (progress.isNaN() || progress.isInfinite()) progress = 0f
+        progress = progress.coerceIn(0f, 100f)
+        if (status != "done") status = "active"
+    }
+
+    companion object {
+        const val ACTIVE = "active"
+        const val DONE = "done"
+        val TYPES = setOf(
+            "improve_skill", "save_gold", "social_confidence", "closer_to_relative",
+            "support_household", "independence",
+        )
+    }
+}
+
 @Serializable
 data class BladeGeometry(
     /** cm */
@@ -265,6 +433,8 @@ data class NpcState(
     val memories: MutableList<String> = mutableListOf(),
     /** The structured experiences the social simulation remembers and reasons with. */
     val experiences: MutableList<MemoryEntry> = mutableListOf(),
+    /** The wishes this person carries: formed by content, grown from character, pursued in their spare hours. */
+    val goals: MutableList<GoalState> = mutableListOf(),
     val bonds: MutableMap<String, Int> = mutableMapOf(),
     val stock: MutableList<StockEntry> = mutableListOf(),
 ) {
@@ -322,6 +492,10 @@ data class SaveGame(
     val rumours: MutableList<RumourEntry> = mutableListOf(),
     /** The social world: opinions, memories of deeds, and the stories travelling between people. */
     val social: SocialSave = SocialSave(),
+    /** The households of the vale: who lives under which roof, and how their shared life goes. */
+    val households: MutableList<HouseholdSave> = mutableListOf(),
+    /** The family bonds between people, kept in their canonical direction. */
+    val kin: KinshipSave = KinshipSave(),
     /** Seed this world was started with. Kept for reports. */
     val seed: Long = 0,
     /** Current state of the world's random sequence, so a reloaded world continues it. */
@@ -364,13 +538,15 @@ object SocialEvents {
     const val PROMISE_BROKEN = "promise_broken"
     const val BRAVERY_WITNESSED = "bravery_witnessed"
     const val LOCAL_EVENT = "local_event"
+    const val GOAL_COMPLETED = "goal_completed"
+    const val HOUSEHOLD_EVENT = "household_event"
 
     /** Words the simulation itself writes; anything else must come from content. */
     val ALL = setOf(
         CONVERSATION, SHARED_WORK, GOSSIP, ARGUMENT, INSULT, RECONCILIATION, FRIENDSHIP_FORMED,
         HELP_RECEIVED, HELP_REFUSED, BETRAYAL, THEFT, COMBAT, RESCUE, TRADE_DEAL, TRADE_DISPUTE,
         AFFECTION, IMPORTANT_CONVERSATION, PUBLIC_HUMILIATION, CRIME_WITNESSED, PROMISE_BROKEN,
-        BRAVERY_WITNESSED, LOCAL_EVENT,
+        BRAVERY_WITNESSED, LOCAL_EVENT, GOAL_COMPLETED, HOUSEHOLD_EVENT,
     )
 }
 
@@ -385,7 +561,12 @@ object NpcActions {
     const val SHOP = "shop"
     const val PATROL = "patrol"
     const val FLEE = "flee"
-    val ALL = setOf(SLEEP, EAT, WORK, REST, SOCIAL, WANDER, SHOP, PATROL, FLEE)
+    // The domestic hours: keeping a household fed, kept and cared for.
+    const val COOK = "cook"
+    const val HOUSEWORK = "housework"
+    const val CARE = "care"
+    const val VISIT = "visit"
+    val ALL = setOf(SLEEP, EAT, WORK, REST, SOCIAL, WANDER, SHOP, PATROL, FLEE, COOK, HOUSEWORK, CARE, VISIT)
 }
 
 /**

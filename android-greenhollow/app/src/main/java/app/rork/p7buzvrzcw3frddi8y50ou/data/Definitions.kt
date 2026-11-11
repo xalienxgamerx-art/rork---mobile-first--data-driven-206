@@ -131,6 +131,42 @@ data class ProfessionDef(
     val needRates: Map<String, Float> = emptyMap(),
 )
 
+/** A wish a person starts with, declared in content instead of grown from character. */
+@Serializable
+data class GoalSeedDef(
+    val type: String,
+    /** What the wish points at: a skill id, a person id — empty when it needs none. */
+    val target: String = "",
+    /** Lower wins when two wishes compete for the same day. */
+    val priority: Int = 50,
+)
+
+/**
+ * A family connection declared in content: [from] is [kind] of [to]. The canonical direction
+ * only — "Bram parent of Petra", never also "Petra child of Bram". Unknown ids and kinds are
+ * reported and dropped; nothing is ever invented to fill a gap.
+ */
+@Serializable
+data class KinDef(val from: String, val to: String, val kind: String)
+
+/**
+ * A household declared in content: the people who share [home] and a domestic life. Membership
+ * does not imply kinship and kinship does not imply living together — packs say both, or either,
+ * as the truth of each family demands.
+ */
+@Serializable
+data class HouseholdDef(
+    val id: String,
+    val name: String,
+    /** The building they live in. */
+    val home: String = "",
+    val members: List<String> = emptyList(),
+    /** The household's primary organiser, where one is recognised. */
+    val head: String = "",
+    /** family, couple, single, shared, extended — a word for the journal. */
+    val type: String = "shared",
+)
+
 @Serializable
 data class NpcDef(
     val id: String,
@@ -159,6 +195,8 @@ data class NpcDef(
     val schedule: String = "",
     /** hunger, fatigue, social, safety -> multiplier on how fast each need wears away. */
     val needRates: Map<String, Float> = emptyMap(),
+    /** The wishes this person starts with. */
+    val goals: List<GoalSeedDef> = emptyList(),
 )
 
 @Serializable
@@ -362,8 +400,11 @@ data class ScheduleEntryDef(
 @Serializable
 data class ScheduleDef(val id: String, val name: String = "", val entries: List<ScheduleEntryDef> = emptyList())
 
-/** The activities a schedule window can ask for. */
-val SCHEDULE_ACTIVITIES = setOf("sleep", "eat", "work", "rest", "socialize", "wander", "shop", "patrol")
+/** The activities a schedule window can ask for. Domestic activities included. */
+val SCHEDULE_ACTIVITIES = setOf(
+    "sleep", "eat", "work", "rest", "socialize", "wander", "shop", "patrol",
+    "cook", "housework", "care", "visit",
+)
 
 @Serializable
 data class ContentPack(
@@ -384,4 +425,8 @@ data class ContentPack(
     val dialogues: List<DialogueDef> = emptyList(),
     val rumours: List<RumourDef> = emptyList(),
     val schedules: List<ScheduleDef> = emptyList(),
+    /** The families and shared roofs of the vale. */
+    val households: List<HouseholdDef> = emptyList(),
+    /** The family bonds, declared in their canonical direction only. */
+    val kinship: List<KinDef> = emptyList(),
 )

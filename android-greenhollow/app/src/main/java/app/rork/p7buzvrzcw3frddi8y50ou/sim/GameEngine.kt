@@ -6,6 +6,9 @@ import app.rork.p7buzvrzcw3frddi8y50ou.sim.systems.CraftingSystem
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.systems.CreatureSystem
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.systems.DialogueSystem
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.systems.DiscoverySystem
+import app.rork.p7buzvrzcw3frddi8y50ou.sim.systems.GoalSystem
+import app.rork.p7buzvrzcw3frddi8y50ou.sim.systems.HouseholdSystem
+import app.rork.p7buzvrzcw3frddi8y50ou.sim.systems.KinshipSystem
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.systems.InteractionSystem
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.systems.InventorySystem
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.systems.NeedsSystem
@@ -69,6 +72,9 @@ class GameEngine(val content: ContentRegistry, val save: SaveGame) {
         w.dialogue = DialogueSystem(w, dialogue)
         w.schedules = ScheduleSystem(w)
         w.social = SocialSystem(w)
+        w.kin = KinshipSystem(w)
+        w.households = HouseholdSystem(w)
+        w.goals = GoalSystem(w)
         w.trade = TradeSystem(w)
         w.interaction = InteractionSystem(w)
         w.crafting = CraftingSystem(w)
@@ -80,6 +86,11 @@ class GameEngine(val content: ContentRegistry, val save: SaveGame) {
 
         w.progression.recalc()
         w.npcSim.build()
+        // Families and households bind once every life exists: bonds and roofs are instantiated
+        // from the packs into the save, and wishes are seeded into lives that lack them.
+        w.kin.bind()
+        w.households.bind()
+        w.goals.bind()
         w.creatureSim.build()
         w.discovery.bind()
         val p = save.player

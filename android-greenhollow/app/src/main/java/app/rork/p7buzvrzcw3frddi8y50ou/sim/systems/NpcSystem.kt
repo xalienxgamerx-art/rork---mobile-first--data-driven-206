@@ -8,6 +8,8 @@ import app.rork.p7buzvrzcw3frddi8y50ou.sim.Creature
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.MIN_PER_SEC
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.Npc
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.NpcActions
+import app.rork.p7buzvrzcw3frddi8y50ou.sim.LifeStages
+import app.rork.p7buzvrzcw3frddi8y50ou.sim.GoalState
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.NpcState
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.StockEntry
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.TWO_PI
@@ -194,9 +196,13 @@ class NpcSystem(private val w: World) {
         if (s.hunger < 20f && s.action != NpcActions.EAT) return beginWith(n, NpcActions.EAT, h)
         if (s.fatigue < 12f && s.action != NpcActions.SLEEP) return beginWith(n, NpcActions.SLEEP, h)
         if (s.safety < 40f && s.action != NpcActions.REST) return beginWith(n, NpcActions.REST, h)
+        // The little ones keep off the beats and the shops: their day stays close to home.
+        val stage = LifeStages.stageOf(n.def.age)
+        val little = stage == LifeStages.INFANT || stage == LifeStages.CHILD
         val entry = w.schedules.entryFor(n, save.minutes)
         if (entry != null) {
-            val act = if (entry.activity == "socialize") NpcActions.SOCIAL else entry.activity
+            val asked = if (entry.activity == "socialize") NpcActions.SOCIAL else entry.activity
+            val act = if (little && asked in setOf(NpcActions.PATROL, NpcActions.SHOP)) NpcActions.WANDER else asked
             if (act != s.action) {
                 begin(n, act, h, entry)
             } else if (act == NpcActions.WANDER && n.path.isEmpty() && n.pause <= 0f && rnd.nextFloat() < 0.5f) {
@@ -204,6 +210,14 @@ class NpcSystem(private val w: World) {
             }
             n.decideAt = save.minutes + 10.0 + rnd.nextDouble() * 8.0
             return
+        }
+        // Free hours: the household's waiting work first, then a wish pursued — both after
+        // danger, critical needs and the day's schedule have had their say.
+        val duty = w.households.dutyFor(n)
+        if (duty != null && s.action != duty) return beginWith(n, duty, h)
+        val goal = w.goals.suggest(n)
+        if (goal != null && goal.type == "closer_to_relative" && s.action != NpcActions.VISIT) {
+            return beginWith(n, NpcActions.VISIT, h)
         }
         legacyDecide(n, h)
         n.decideAt = save.minutes + 10.0 + rnd.nextDouble() * 8.0
@@ -320,6 +334,39 @@ class NpcSystem(private val w: World) {
                     return
                 }
             }
+            NpcActions.COOK, NpcActions.HOUSEWORK, NpcActions.CARE -> {
+                val b = w.households.of(n.def.id)?.home?.let { content.buildings[it] }
+                if (b != null) {
+                    val d = w.doorOf(b, n.spread)
+                    routeTo(n, d[0], d[1], "")
+                    n.destName = b.name
+                    n.destLabel = when (action) {
+                        NpcActions.COOK -> "Cooking at ${b.name}"
+                        NpcActions.HOUSEWORK -> "Seeing to ${b.name}"
+                        else -> "Minding the little ones"
+                    }
+                } else {
+                    routeTo(n, n.homeDoor[0], n.homeDoor[1], "")
+                    n.destName = n.homeName
+                    n.destLabel = when (action) {
+                        NpcActions.COOK -> "Cooking at home"
+                        NpcActions.HOUSEWORK -> "Seeing to the house"
+                        else -> "Minding the little ones"
+                    }
+                }
+            }
+            NpcActions.VISIT -> {
+                val dest = visitDest(n)
+                if (dest != null) {
+                    routeTo(n, dest.x, dest.z, dest.gate)
+                    n.destName = dest.name
+                    n.destLabel = "Visiting at ${dest.name}"
+                    n.nextSocialAt = save.minutes + 10.0
+                } else {
+                    begin(n, NpcActions.WANDER, h)
+                    return
+                }
+            }
             NpcActions.SOCIAL -> {
                 val inn = w.inn
                 if (h >= 18f && inn != null) {
@@ -337,15 +384,52 @@ class NpcSystem(private val w: World) {
                 n.nextSocialAt = save.minutes + 10.0
             }
             else -> {
-                val a = rnd.nextFloat() * TWO_PI
-                val r = 6f + rnd.nextFloat() * 20f
-                routeTo(n, cos(a) * r, sin(a) * r, "")
-                n.destName = "the village"
-                n.destLabel = "Taking the air"
+                // The little ones play close to home; everyone else takes the whole village.
+                if (LifeStages.isDependant(LifeStages.stageOf(n.def.age))) {
+                    val a = rnd.nextFloat() * TWO_PI
+                    val r = 2f + rnd.nextFloat() * 4f
+                    routeTo(n, n.homeDoor[0] + cos(a) * r, n.homeDoor[1] + sin(a) * r, "")
+                    n.destName = n.homeName
+                    n.destLabel = "Playing near home"
+                } else {
+                    val a = rnd.nextFloat() * TWO_PI
+                    val r = 6f + rnd.nextFloat() * 20f
+                    routeTo(n, cos(a) * r, sin(a) * r, "")
+                    n.destName = "the village"
+                    n.destLabel = "Taking the air"
+                }
             }
         }
         val far = n.path.size > 1
         s.activity = if (far) "Heading to ${n.destName}" else "Walking to ${n.destName}"
+    }
+
+    /** The home of the kin a visit is owed to: the partner first, then the closest recorded bond. */
+    private fun visitDest(n: Npc): Dest? {
+        val k = w.kin
+        val own = w.households.of(n.def.id)
+        val targets = listOfNotNull(k.spouseOf(n.def.id)) + k.bondsOf(n.def.id).map { it.first }
+        for (t in targets.distinct()) {
+            val other = w.households.of(t) ?: continue
+            if (other === own || other.home.isEmpty()) continue
+            val b = content.buildings[other.home] ?: continue
+            val d = w.doorOf(b, n.spread)
+            return Dest(d[0], d[1], "", b.name)
+        }
+        return null
+    }
+
+    /** The little ones near a carer are warmed and steadied by the attention. */
+    private fun careFor(n: Npc, hours: Float) {
+        val hh = w.households.of(n.def.id) ?: return
+        for (m in hh.members) {
+            val o = w.npcById[m] ?: continue
+            if (o === n) continue
+            if (!LifeStages.isDependant(LifeStages.stageOf(o.def.age))) continue
+            if (abs(o.s.x - n.s.x) > 12f || abs(o.s.z - n.s.z) > 12f) continue
+            o.s.social = min(100f, o.s.social + 10f * hours)
+            o.s.safety = min(100f, o.s.safety + 4f * hours)
+        }
     }
 
     fun step(n: Npc, dt: Float, detailed: Boolean) {
@@ -417,17 +501,26 @@ class NpcSystem(private val w: World) {
                 if (s.fatigue >= 98f) n.decideAt = min(n.decideAt, save.minutes + 1.0)
             }
             NpcActions.EAT -> {
-                s.indoors = n.destName == n.homeName
-                s.hunger = min(100f, s.hunger + 65f * hours)
+                val atHome = n.destName == n.homeName
+                s.indoors = atHome
+                val hh = if (atHome) w.households.of(n.def.id) else null
+                // A thin larder makes a thin meal.
+                val fill = if (hh != null && hh.food < 15f) 38f else 65f
+                s.hunger = min(100f, s.hunger + fill * hours)
+                if (hh != null) w.households.eatAtHome(n, hours)
                 if (s.hunger >= 96f) n.decideAt = min(n.decideAt, save.minutes + 0.5)
             }
             NpcActions.WORK -> {
-                n.wageAcc += n.prof.wage * hours
-                if (n.wageAcc >= 1f) {
-                    val coins = n.wageAcc.toInt()
-                    s.gold += coins
-                    n.wageAcc -= coins
+                // The little ones are not paid for their days; growing up is work enough.
+                if (!LifeStages.isDependant(LifeStages.stageOf(n.def.age))) {
+                    n.wageAcc += n.prof.wage * hours
+                    if (n.wageAcc >= 1f) {
+                        val coins = n.wageAcc.toInt()
+                        s.gold += coins
+                        n.wageAcc -= coins
+                    }
                 }
+                w.goals.progress(n, NpcActions.WORK, hours)
                 if (detailed) n.yaw = atan2(-s.x, s.z)
                 // Work shared is acquaintance made: a light, cooled check, never a scan every frame.
                 if (save.minutes >= n.nextWorkCheck) {
@@ -440,6 +533,21 @@ class NpcSystem(private val w: World) {
             }
             NpcActions.SOCIAL -> {
                 s.social = min(100f, s.social + 30f * hours)
+                w.goals.progress(n, NpcActions.SOCIAL, hours)
+                if (save.minutes >= n.nextSocialAt) {
+                    n.nextSocialAt = save.minutes + 50.0
+                    mingle(n)
+                }
+            }
+            NpcActions.COOK, NpcActions.HOUSEWORK, NpcActions.CARE -> {
+                s.indoors = true
+                w.households.applyAction(n, s.action, hours)
+                if (s.action == NpcActions.CARE) careFor(n, hours)
+                w.goals.progress(n, s.action, hours)
+            }
+            NpcActions.VISIT -> {
+                s.social = min(100f, s.social + 24f * hours)
+                w.goals.progress(n, NpcActions.VISIT, hours)
                 if (save.minutes >= n.nextSocialAt) {
                     n.nextSocialAt = save.minutes + 50.0
                     mingle(n)
@@ -515,6 +623,8 @@ class NpcSystem(private val w: World) {
             NpcActions.SLEEP, NpcActions.REST, NpcActions.FLEE -> Dest(n.homeDoor[0], n.homeDoor[1], "", n.homeName)
             NpcActions.EAT -> w.schedules.destinationOf(n, s.actionTarget.ifEmpty { "home" })
                 ?: Dest(n.homeDoor[0], n.homeDoor[1], "", n.homeName)
+            NpcActions.COOK, NpcActions.HOUSEWORK, NpcActions.CARE -> Dest(n.homeDoor[0], n.homeDoor[1], "", n.homeName)
+            NpcActions.VISIT -> visitDest(n)
             NpcActions.WORK -> w.schedules.workDest(n)
             NpcActions.SHOP -> w.shop?.let { w.doorOf(it, n.spread).let { d -> Dest(d[0], d[1], "", it.name) } }
             else -> null // wanderers and idlers are left where their lives left them
@@ -533,6 +643,10 @@ class NpcSystem(private val w: World) {
             NpcActions.SOCIAL -> "Chatting"
             NpcActions.SHOP -> "Shopping"
             NpcActions.PATROL -> "Patrolling"
+            NpcActions.COOK -> "Cooking"
+            NpcActions.HOUSEWORK -> "Seeing to the house"
+            NpcActions.CARE -> "Minding the little ones"
+            NpcActions.VISIT -> "Visiting kin"
             else -> "Taking the air"
         }
         s.lastSim = now
@@ -565,7 +679,12 @@ class NpcSystem(private val w: World) {
                 s.fatigue = min(100f, s.fatigue + 17f * hours)
                 s.safety = min(100f, s.safety + 8f * hours)
             }
-            NpcActions.EAT -> s.hunger = min(100f, s.hunger + 65f * hours)
+            NpcActions.EAT -> {
+                s.hunger = min(100f, s.hunger + 65f * hours)
+                // Most meals away from the player's eyes are taken at home, where they bite
+                // into the larder like any other.
+                w.households.eatAtHome(n, hours)
+            }
             NpcActions.REST, NpcActions.FLEE -> {
                 s.fatigue = min(100f, s.fatigue + 8f * hours)
                 s.safety = min(100f, s.safety + 8f * hours)
@@ -573,6 +692,16 @@ class NpcSystem(private val w: World) {
             NpcActions.SOCIAL -> {
                 s.social = min(100f, s.social + 30f * hours)
                 w.social.abstractLife(n, action, hours)
+                w.goals.progress(n, action, hours)
+            }
+            NpcActions.COOK, NpcActions.HOUSEWORK, NpcActions.CARE -> {
+                w.households.applyAction(n, action, hours)
+                if (action == NpcActions.CARE) careFor(n, hours)
+                w.goals.progress(n, action, hours)
+            }
+            NpcActions.VISIT -> {
+                s.social = min(100f, s.social + 24f * hours)
+                w.goals.progress(n, action, hours)
             }
             NpcActions.SHOP -> s.hunger = min(100f, s.hunger + 25f * hours)
             NpcActions.WORK -> {
@@ -621,6 +750,8 @@ class NpcSystem(private val w: World) {
             if (n.path.isNotEmpty()) travelling++
         }
         val so = w.social
+        var goalsActive = 0
+        for (n in save.npcs) goalsActive += n.goals.count { it.status == GoalState.ACTIVE }
         Diagnostics.updateSim { it.copy(
             npcs = w.npcs.size, active = near, regional = regional, distant = distant,
             working = working, sleeping = sleeping, travelling = travelling, fleeing = fleeing,
@@ -632,6 +763,9 @@ class NpcSystem(private val w: World) {
             gossipShared = so.gossipShared, gossipRejected = so.gossipRejected,
             socialAttempts = so.socialAttempts, socialCompleted = so.socialCompleted,
             socialSkipped = so.socialSkipped, invalidRefs = so.invalidRefs,
+            households = save.households.size, membershipChanges = w.households.membershipChanges,
+            dutiesAssigned = w.households.dutiesAssigned,
+            goalsActive = goalsActive, goalsCompleted = w.goals.goalsCompleted,
         ) }
     }
 

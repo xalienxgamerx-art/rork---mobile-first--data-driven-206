@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AutoStories
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Hotel
 import androidx.compose.material.icons.filled.HourglassBottom
 import androidx.compose.material.icons.filled.Person
@@ -106,6 +107,7 @@ fun JournalScreen(engine: GameEngine, onSettings: () -> Unit, onNpc: (String) ->
             InkChip("Rumours", section == "rumours", { section = "rumours" })
             InkChip("Bestiary", section == "bestiary", { section = "bestiary" }, Icons.Filled.Pets)
             InkChip("People", section == "people", { section = "people" }, Icons.Filled.Groups)
+            InkChip("Households", section == "households", { section = "households" }, Icons.Filled.Home)
             InkChip("Chronicle", section == "chronicle", { section = "chronicle" }, Icons.Filled.AutoStories)
         }
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 20.dp)) {
@@ -114,6 +116,7 @@ fun JournalScreen(engine: GameEngine, onSettings: () -> Unit, onNpc: (String) ->
                 "rumours" -> rumours(journal)
                 "bestiary" -> bestiary(journal)
                 "people" -> people(journal, filter, { filter = it }, onNpc)
+                "households" -> households(journal)
                 "chronicle" -> chronicle(journal)
                 else -> character(engine, journal)
             }
@@ -373,6 +376,46 @@ private fun LazyListScope.people(journal: JournalView, filter: String, onFilter:
                 Text("${n.affinity}", style = MaterialTheme.typography.titleMedium)
             }
             HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = Ink.Line)
+        }
+    }
+}
+
+private fun LazyListScope.households(journal: JournalView) {
+    // The roofs of the vale, shown only as far as the player has come to know them.
+    if (journal.households.isEmpty()) {
+        item { EmptyNote("No households are kept in this vale.") }
+        return
+    }
+    items(journal.households, key = { it.id }) { hh ->
+        ParchmentCard(cardPad.fillMaxWidth()) {
+            Text(hh.name, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (hh.home.isNotBlank()) {
+                Text(hh.home, style = MaterialTheme.typography.bodyMedium, color = Ink.Muted)
+            }
+            if (!hh.known) {
+                Text(
+                    "You know of the roof, but not yet of the lives under it.",
+                    style = MaterialTheme.typography.bodyMedium, fontStyle = FontStyle.Italic, color = Ink.Muted,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+                return@ParchmentCard
+            }
+            Spacer(Modifier.height(6.dp))
+            hh.members.forEach { KeyValue("Lives there", it) }
+            if (hh.responsibilities.isNotEmpty()) {
+                HorizontalDivider(Modifier.padding(vertical = 6.dp), color = Ink.Line)
+                hh.responsibilities.forEach { KeyValue("Seen to by", it) }
+            }
+            Spacer(Modifier.height(6.dp))
+            StatBar(Icons.Filled.Restaurant, "Larder", hh.food, 100f, needColor(hh.food))
+            StatBar(Icons.Filled.Weekend, "The house itself", hh.condition, 100f, needColor(hh.condition))
+            if (hh.history.isNotEmpty()) {
+                HorizontalDivider(Modifier.padding(vertical = 6.dp), color = Ink.Line)
+                Text("Household history", style = MaterialTheme.typography.titleSmall, color = Ink.Muted)
+                hh.history.take(6).forEach {
+                    Text(it, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(vertical = 3.dp))
+                }
+            }
         }
     }
 }

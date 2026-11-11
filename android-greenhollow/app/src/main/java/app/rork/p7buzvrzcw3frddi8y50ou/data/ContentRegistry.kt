@@ -2,6 +2,7 @@ package app.rork.p7buzvrzcw3frddi8y50ou.data
 
 import android.content.Context
 import android.net.Uri
+import app.rork.p7buzvrzcw3frddi8y50ou.sim.Kin
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.util.TreeSet
@@ -60,6 +61,9 @@ class ContentRegistry(
     val dialogues: Defs<DialogueDef>,
     val rumours: Defs<RumourDef>,
     val schedules: Defs<ScheduleDef>,
+    val households: Defs<HouseholdDef>,
+    /** The family bonds, resolved and deduplicated; canonical direction only. */
+    val kinship: List<KinDef>,
     val packs: List<PackInfo>,
     val issues: List<ContentIssue>,
 ) {
@@ -116,7 +120,7 @@ object ContentBuilder {
     private val LEGACY_SLOTS = mapOf("weapon" to "main_hand", "shield" to "off_hand")
     val CONDITION_TYPES = setOf(
         "affinity", "skill", "attribute", "level", "hour", "gold", "item", "flag", "memory", "rumour", "place", "relation",
-        "activity", "need", "rel", "rel_memory", "gossip",
+        "activity", "need", "rel", "rel_memory", "gossip", "kin", "goal",
     )
     val OUTCOME_TYPES = setOf(
         "affinity", "rumour", "give_item", "take_item", "gold", "trade", "flag", "memory", "skill_xp", "small_talk", "end",
@@ -188,7 +192,8 @@ object ContentBuilder {
 
     private fun count(p: ContentPack) = p.materials.size + p.items.size + p.races.size + p.backgrounds.size +
         p.professions.size + p.npcs.size + p.creatures.size + p.buildings.size + p.locations.size + p.spots.size +
-        p.resources.size + p.interactables.size + p.dialogues.size + p.rumours.size + p.schedules.size
+        p.resources.size + p.interactables.size + p.dialogues.size + p.rumours.size + p.schedules.size +
+        p.households.size + p.kinship.size
 
     /** Why this pack cannot be loaded next to [loaded] (pack id -> version), or null when it can. */
     fun blocker(m: ModManifest, loaded: Map<String, String>): String? {
@@ -263,6 +268,7 @@ object ContentBuilder {
         val dialogues = Table<DialogueDef>("conversation", { it.id }, { d, id -> d.copy(id = id) })
         val rumours = Table<RumourDef>("rumour", { it.id }, { d, id -> d.copy(id = id) })
         val schedules = Table<ScheduleDef>("schedule", { it.id }, { d, id -> d.copy(id = id) })
+        val households = Table<HouseholdDef>("household", { it.id }, { d, id -> d.copy(id = id) })
         val population = ArrayList<Pair<String, PopulationDef>>()
         val loaded = LinkedHashMap<String, String>()
         val packs = ArrayList<PackInfo>()
@@ -346,6 +352,7 @@ object ContentBuilder {
             register(dialogues, p.dialogues)
             register(rumours, p.rumours)
             register(schedules, p.schedules)
+            register(households, p.households)
             p.population.forEach { population += m.id to it }
         }
 
@@ -627,12 +634,77 @@ object ContentBuilder {
             }
         }
 
+        // ---- households: the roof must exist, the people must exist, and an empty household
+        // keeps nobody company. Broken pieces are dropped with a report, never silently.
+        for ((id, d) in households.defs.toList()) {
+            val pack = households.pack(id)
+            var home = if (d.home.isEmpty()) "" else buildings.resolve(pack, d.home)
+            if (home.isNotEmpty() && !buildings.has(home)) {
+                warn(households, id, "The household '$id' lives at '${d.home}', which is not a building. It starts between homes.")
+                home = ""
+            }
+            val members = d.members.map { npcs.resolve(pack, it) }.filter { npcs.has(it) }.toCollection(ArrayList())
+            val dropped = d.members.size - members.size
+            if (dropped > 0) {
+                warn(households, id, "The household '$id' lists $dropped member(s) who do not exist. They were left out.")
+            }
+            if (members.isEmpty()) {
+                fail(households, id, "The household '$id' has no members left and was removed.")
+                households.defs.remove(id)
+                continue
+            }
+            var head = if (d.head.isEmpty()) "" else npcs.resolve(pack, d.head)
+            if (head.isNotEmpty() && head !in members) {
+                warn(households, id, "The household '$id' names '${d.head}' as its head, but they do not live there. No head is recorded.")
+                head = ""
+            }
+            households.defs[id] = d.copy(home = home, members = members, head = head)
+        }
+
+        // ---- kinship: both ends must exist and the word must be one we know. A bond is kept
+        // once, in its canonical direction; a symmetric bond written both ways round collapses
+        // to one record. A bond whose ends vanished is reported and dropped.
+        val kinEdges = LinkedHashMap<String, KinDef>()
+        for (l in found) {
+            val m = l.pack.manifest
+            if (!packs.any { it.manifest.id == m.id && it.loaded }) continue
+            for (d in l.pack.kinship) {
+                val from = npcs.resolve(m.id, d.from)
+                val to = npcs.resolve(m.id, d.to)
+                val kind = d.kind.trim()
+                val problems = buildList {
+                    if (!npcs.has(from)) add("'${d.from}' does not exist")
+                    if (!npcs.has(to)) add("'${d.to}' does not exist")
+                    if (from == to) add("joins '${d.from}' to themselves")
+                    if (kind !in Kin.ALL) add("'${d.kind}' is not a family bond")
+                }
+                if (problems.isNotEmpty()) {
+                    issues += ContentIssue("warning", m.id, "A family bond ${problems.joinToString(" and ")}. It was left out.", "${d.from}>${d.to}:${d.kind}")
+                    continue
+                }
+                var a = from
+                var b = to
+                if (kind in Kin.SYMMETRIC && b < a) {
+                    a = b
+                    b = from
+                }
+                val key = "$a>$b:$kind"
+                val existing = kinEdges[key]
+                if (existing == null) {
+                    kinEdges[key] = KinDef(a, b, kind)
+                } else if (existing.from != d.from || existing.to != d.to || existing.kind != kind) {
+                    issues += ContentIssue("warning", m.id, "The family bond between '${d.from}' and '${d.to}' is written twice in different ways. The first was kept.", key)
+                }
+            }
+        }
+
         generatePopulation(population, professions, races, buildings, npcs)
 
         return ContentRegistry(
             materials.freeze(), items.freeze(), races.freeze(), backgrounds.freeze(), professions.freeze(),
             npcs.freeze(), creatures.freeze(), buildings.freeze(), locations.freeze(), spots.freeze(),
-            resources.freeze(), interactables.freeze(), dialogues.freeze(), rumours.freeze(), schedules.freeze(), packs, issues,
+            resources.freeze(), interactables.freeze(), dialogues.freeze(), rumours.freeze(), schedules.freeze(),
+            households.freeze(), kinEdges.values.toList(), packs, issues,
         )
     }
 
@@ -781,6 +853,7 @@ object ContentLoader {
         ids("conversation", pack.dialogues.map { it.id })
         ids("rumour", pack.rumours.map { it.id })
         ids("schedule", pack.schedules.map { it.id })
+        ids("household", pack.households.map { it.id })
         if (problems.isNotEmpty()) return pack to problems
 
         // Dry run: the whole world must still build with this pack in it.

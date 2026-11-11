@@ -7,6 +7,9 @@ import app.rork.p7buzvrzcw3frddi8y50ou.sim.BeastView
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.Calendar
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.CharacterView
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.CompareLine
+import app.rork.p7buzvrzcw3frddi8y50ou.sim.GoalState
+import app.rork.p7buzvrzcw3frddi8y50ou.sim.HouseholdSave
+import app.rork.p7buzvrzcw3frddi8y50ou.sim.HouseholdView
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.Hud
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.ItemInstance
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.ItemView
@@ -115,6 +118,38 @@ class SnapshotSystem(
         val talk = w.dialogue
         val social = w.social
         val now = save.minutes
+
+        // The player's knowledge is the journal's gate: a household appears once the player has
+        // come to know any member well enough (or is kin to one), and only then do its names,
+        // its troubles and its history show. Nothing is ever revealed by omniscience.
+        fun householdKnown(hh: HouseholdSave): Boolean = hh.members.any { m ->
+            social.dim(m, PLAYER_ID, "familiarity") >= 12f || w.kin.related(m, PLAYER_ID)
+        }
+        val householdViews = save.households.map { hh ->
+            val known = householdKnown(hh)
+            val duties = if (known) hh.duties.mapNotNull { (duty, who) ->
+                val whoName = w.npcById[who]?.def?.name ?: return@mapNotNull null
+                val label = duty.replaceFirstChar { c -> c.uppercaseChar() }
+                "$label — $whoName"
+            } else emptyList()
+            HouseholdView(
+                id = hh.id,
+                name = if (known) hh.name else "A household you have yet to meet",
+                home = if (known) content.buildings[hh.home]?.name ?: "" else "",
+                type = hh.type,
+                members = hh.members.map { m ->
+                    if (social.dim(m, PLAYER_ID, "familiarity") >= 12f) {
+                        w.npcById[m]?.def?.name ?: m
+                    } else "a face you do not know"
+                },
+                known = known,
+                history = if (known) hh.history.asReversed().map { "${date(it.minute)}: ${it.text}" } else emptyList(),
+                food = if (known) hh.food else 0f,
+                condition = if (known) hh.condition else 0f,
+                responsibilities = duties,
+            )
+        }
+
         val views = w.npcs.map { n ->
             // The weightiest moments this person and the player share, strongest first; a story
             // they only heard tell is marked as such, never passed off as their own sight.
@@ -126,6 +161,21 @@ class SnapshotSystem(
                     val hedge = if (!m.witnessed || m.confidence < 0.6f) " (or so they believe)" else ""
                     "${m.text.replaceFirstChar { it.uppercase() }}$hedge — ${Calendar.dateLabel(m.minute)}"
                 }
+            // Family and household are told, not known: they appear once the player has come
+            // to know this person at all, and only name kin they have also met. Wishes are
+            // shared with a friend, and with no one less.
+            val knowsNpc = social.dim(n.def.id, PLAYER_ID, "familiarity") >= 12f
+            val family = if (knowsNpc) w.kin.bondsOf(n.def.id).mapNotNull { (other, word) ->
+                val knownOther = other == PLAYER_ID || social.dim(other, PLAYER_ID, "familiarity") >= 12f
+                if (!knownOther) return@mapNotNull null
+                val otherName = if (other == PLAYER_ID) p.name else w.npcById[other]?.def?.name ?: return@mapNotNull null
+                "$otherName — " + word.replace('_', ' ')
+            } else emptyList()
+            val hh = w.households.of(n.def.id)
+            val householdName = if (knowsNpc && hh != null && householdKnown(hh)) hh.name else ""
+            val goals = if (social.dim(n.def.id, PLAYER_ID, "friendship") >= 40f) {
+                n.s.goals.filter { it.status == GoalState.ACTIVE }.take(2).map { w.goals.text(n, it) }
+            } else emptyList()
             NpcView(
                 id = n.def.id, def = n.def,
                 profession = n.prof.name,
@@ -147,6 +197,12 @@ class SnapshotSystem(
                 skin = n.skinHex, cloth = n.clothHex, hat = n.hat,
                 standing = social.standing(n.def.id, PLAYER_ID).replaceFirstChar { it.uppercase() },
                 sharedHistory = shared,
+                lifeStage = app.rork.p7buzvrzcw3frddi8y50ou.sim.LifeStages.label(
+                    app.rork.p7buzvrzcw3frddi8y50ou.sim.LifeStages.stageOf(n.def.age),
+                ),
+                household = householdName,
+                family = family,
+                goals = goals,
             )
         }.sortedByDescending { it.affinity }
 
@@ -212,6 +268,7 @@ class SnapshotSystem(
             rumours = rumours,
             bestiary = bestiary,
             gossip = gossip,
+            households = householdViews,
         )
     }
 

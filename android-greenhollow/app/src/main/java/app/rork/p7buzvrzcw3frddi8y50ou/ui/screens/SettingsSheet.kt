@@ -286,6 +286,13 @@ fun SettingsSheet(vm: GameViewModel, onDismiss: () -> Unit) {
                     if (sim.invalidRefs > 0) {
                         KeyValue("References that matched no one", "${sim.invalidRefs}")
                     }
+
+                    HorizontalDivider(Modifier.padding(vertical = 6.dp), color = Ink.Line)
+                    Text("Households & families", style = MaterialTheme.typography.titleSmall)
+                    KeyValue("Households kept", "${sim.households}")
+                    KeyValue("Roofs changed", "${sim.membershipChanges} moves in or out")
+                    KeyValue("Work shared out", "${sim.dutiesAssigned} times")
+                    KeyValue("Wishes pursued", "${sim.goalsActive} open, ${sim.goalsCompleted} achieved")
                 }
 
                 HorizontalDivider(Modifier.padding(vertical = 6.dp), color = Ink.Line)

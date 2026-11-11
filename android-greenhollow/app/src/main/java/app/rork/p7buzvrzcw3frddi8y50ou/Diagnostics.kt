@@ -49,6 +49,12 @@ data class SimHealth(
     val socialCompleted: Int = 0,
     val socialSkipped: Int = 0,
     val invalidRefs: Int = 0,
+    /** Households and their domestic life: roofs kept, work shared, wishes pursued. */
+    val households: Int = 0,
+    val membershipChanges: Int = 0,
+    val dutiesAssigned: Int = 0,
+    val goalsActive: Int = 0,
+    val goalsCompleted: Int = 0,
 )
 
 /** How the dialogue voice is doing this session. */
@@ -148,6 +154,10 @@ object Diagnostics {
         appendLine("Stories in circulation: ${sim.gossip} (${sim.gossipCreated} begun, ${sim.gossipShared} retellings, ${sim.gossipRejected} declined)")
         appendLine("Encounters: ${sim.socialCompleted} of ${sim.socialAttempts} (${sim.socialSkipped} too soon after the last)")
         if (sim.invalidRefs > 0) appendLine("References that matched no one: ${sim.invalidRefs}")
+        appendLine()
+        appendLine("HOUSEHOLDS & FAMILIES")
+        appendLine("Households: ${sim.households} (${sim.membershipChanges} membership changes, duties shared out ${sim.dutiesAssigned} times)")
+        appendLine("Wishes pursued: ${sim.goalsActive} active, ${sim.goalsCompleted} achieved")
         appendLine()
         appendLine("VOICE")
         appendLine("Lines voiced this session: ${s.voice.linesVoiced} (${s.voice.errors} failed)")

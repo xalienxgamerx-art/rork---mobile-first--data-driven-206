@@ -42,6 +42,7 @@ class DialogueSystem(private val w: World, private val out: MutableStateFlow<Dia
      */
     fun relationOf(n: Npc): String = when {
         n.def.relation == "family" -> "family"
+        w.kin.related(n.def.id, PLAYER_ID) -> "family"
         w.social.dim(n.def.id, PLAYER_ID, "friendship") >= 55f -> "friend"
         w.social.dim(n.def.id, PLAYER_ID, "hostility") >= 40f -> "rival"
         w.social.dim(n.def.id, PLAYER_ID, "resentment") >= 55f -> "rival"
@@ -225,6 +226,12 @@ class DialogueSystem(private val w: World, private val out: MutableStateFlow<Dia
             }
             // Whether this person carries a story: by category (rescue, theft, ...) or story id.
             "gossip" -> w.social.knows(n.def.id, c.key)
+            // Kinship with the player: key is the family word (parent, child, partner, ...),
+            // or empty for any bond at all.
+            "kin" -> if (c.key.isEmpty()) w.kin.related(n.def.id, PLAYER_ID)
+            else w.kin.kinLabel(n.def.id, PLAYER_ID) == c.key
+            // A wish they are actively pursuing, by its kind.
+            "goal" -> n.s.goals.any { it.status == app.rork.p7buzvrzcw3frddi8y50ou.sim.GoalState.ACTIVE && it.type == c.key }
             "skill" -> inRange(w.progression.skill(c.key), c)
             "attribute" -> inRange(w.progression.attr(c.key).toFloat(), c)
             "level" -> inRange(p.level.toFloat(), c)
@@ -289,6 +296,13 @@ class DialogueSystem(private val w: World, private val out: MutableStateFlow<Dia
         // The news, if they carry a story the player has not heard.
         val heard = social.playerStories().firstOrNull()
         if (heard != null) options += "Did you hear? ${social.storyText(heard.first, PLAYER_ID)}"
+        // Family is spoken of with the people it belongs to; a friend may hear of a wish.
+        val kinWord = w.kin.kinLabel(n.def.id, PLAYER_ID)
+        if (kinWord != null) options += "You are a good ${kinWord.replace('_', ' ')}, ${p.name}. It steadies me."
+        val friendship = social.dim(n.def.id, PLAYER_ID, "friendship")
+        if (friendship >= 40f) {
+            w.goals.suggest(n)?.let { g -> options += "Between us? What I want, before too long: ${w.goals.text(n, g).replaceFirstChar { it.lowercase() }}." }
+        }
         if (save.weather == "mist") options += "This mist gets into the bones."
         var line = options[w.rng.nextInt(options.size)]
         if (first) {

@@ -106,6 +106,14 @@ data class NpcView(
     val standing: String = "",
     /** The weightiest moments they and the player share, as they remember them. */
     val sharedHistory: List<String> = emptyList(),
+    /** Where in life they stand, read from their age: child, adult, elder. */
+    val lifeStage: String = "",
+    /** The household they keep, when the player has come to know it. Empty when not. */
+    val household: String = "",
+    /** Their family as the player knows it: "Name — the word for the bond". */
+    val family: List<String> = emptyList(),
+    /** The wishes they have shared, as the journal prints them. Only a friend hears these. */
+    val goals: List<String> = emptyList(),
 )
 
 data class ItemView(
@@ -150,6 +158,28 @@ data class PackView(
     val slots: List<SlotView> = emptyList(),
 )
 
+/**
+ * A household as the journal may show it: what is known of who lives there and how they fare.
+ * A household the player has yet to meet shows only that it exists — no names, no troubles.
+ */
+data class HouseholdView(
+    val id: String,
+    val name: String,
+    val home: String,
+    /** The household's word for itself: family, couple, single, shared, extended. */
+    val type: String,
+    /** Member descriptions, discovered ones by name, the rest by their absence of one. */
+    val members: List<String>,
+    val known: Boolean,
+    /** The household's own recent history, newest first. */
+    val history: List<String>,
+    /** Food and the state of the home, 0..100, only for known households. */
+    val food: Float = 0f,
+    val condition: Float = 0f,
+    /** Who has taken on what: "Cooking — Bram". */
+    val responsibilities: List<String> = emptyList(),
+)
+
 data class JournalView(
     val npcs: List<NpcView> = emptyList(),
     val hunger: Float = 70f,
@@ -164,6 +194,7 @@ data class JournalView(
     val rumours: List<RumourView> = emptyList(),
     val bestiary: List<BeastView> = emptyList(),
     val gossip: List<StoryView> = emptyList(),
+    val households: List<HouseholdView> = emptyList(),
 )
 
 sealed interface UiEvent {

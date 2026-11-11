@@ -12,8 +12,11 @@ import app.rork.p7buzvrzcw3frddi8y50ou.sim.systems.CraftingSystem
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.systems.CreatureSystem
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.systems.DialogueSystem
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.systems.DiscoverySystem
+import app.rork.p7buzvrzcw3frddi8y50ou.sim.systems.GoalSystem
+import app.rork.p7buzvrzcw3frddi8y50ou.sim.systems.HouseholdSystem
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.systems.InteractionSystem
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.systems.InventorySystem
+import app.rork.p7buzvrzcw3frddi8y50ou.sim.systems.KinshipSystem
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.systems.NeedsSystem
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.systems.NpcSystem
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.systems.PlayerSystem
@@ -145,6 +148,11 @@ class World(
     lateinit var discovery: DiscoverySystem
     lateinit var schedules: ScheduleSystem
     lateinit var social: SocialSystem
+    // Safe defaults, so tests and partial worlds may run without the engine's full wiring;
+    // the engine reassigns these and binds them in order when a real game starts.
+    var kin: KinshipSystem = KinshipSystem(this)
+    var households: HouseholdSystem = HouseholdSystem(this)
+    var goals: GoalSystem = GoalSystem(this)
 
     init {
         for (b in content.buildings.values) {
@@ -433,6 +441,34 @@ object SaveBinding {
         // built from their affinities in the first place.
         for (npc in save.npcs) {
             social.relationships["${npc.id}>$PLAYER_ID"]?.let { npc.affinity = legacyAffinity(it) }
+        }
+
+        // Households: references rewritten like everything else, members nothing defines
+        // reported and let go. Kin bonds are bound by their own system once the world exists.
+        for (hh in save.households) {
+            hh.home = content.buildings.canonical(hh.home).takeIf { content.buildings[it] != null } ?: ""
+            for (m in hh.members.toList()) {
+                val c = canonicalNpc(m)
+                if (c == null) {
+                    logUnresolved("person", m, false)
+                    hh.members.remove(m)
+                } else if (c != m) {
+                    hh.members.remove(m)
+                    hh.members.add(c)
+                }
+            }
+            if (hh.head.isNotEmpty()) hh.head = canonicalNpc(hh.head) ?: ""
+            hh.sanitize()
+        }
+        // A wish's target may be a person, a trade or a skill: a person reference is rewritten
+        // when one exists, anything else is kept as written.
+        for (npc in save.npcs) {
+            for (g in npc.goals) {
+                if (g.target.isEmpty()) continue
+                val c = canonicalNpc(g.target)
+                if (c != null) g.target = c
+                g.sanitize()
+            }
         }
     }
 }
