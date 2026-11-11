@@ -18,7 +18,7 @@ import kotlin.math.sin
  * Song format: space-separated tokens NOTE[:beats][=lyric] — "C4:1=Ho", "F#3:0.5=la",
  * "Bb2", "R:2" (a rest). A token without a lyric is hummed.
  */
-class Vocalizer(private val volume: Float = 0.35f) {
+class Vocalizer(private val volume: Float = (0.35f).coerceIn(0f, 1f)) {
 
     enum class VoiceName { SPRITE, HERO, GIANT, ROBOT }
 
@@ -97,9 +97,13 @@ class Vocalizer(private val volume: Float = 0.35f) {
         val v = voices.getValue(voice)
         val buf = Buf()
         var t = LEAD_IN
-        for (n in song) {
-            val dur = n.beats * 60.0 / bpm
-            val freq = noteToFreq(n.note)
+        // A song written by hand or by a pack cannot be trusted to sane numbers: tempo and note
+        // lengths are clamped, wild frequencies are brought into earshot, nonsense notes are
+        // skipped rather than rendered as silence or noise.
+        val tempo = if (bpm.isNaN() || bpm.isInfinite()) 100.0 else bpm.coerceIn(MIN_BPM, MAX_BPM)
+        for (n in song.take(MAX_NOTES)) {
+            val dur = n.beats * 60.0 / tempo
+            val freq = noteToFreq(n.note)?.coerceIn(MIN_HZ, MAX_HZ)
             if (freq != null) syllable(n.lyric, freq, t, dur * 0.97, v, vibrato, buf)
             t += dur
         }
@@ -141,7 +145,7 @@ class Vocalizer(private val volume: Float = 0.35f) {
             val raw = when (wave) {
                 Wave.SQUARE -> if (sin(2 * PI * phase) >= 0) 1.0 else -1.0
                 Wave.SAWTOOTH -> 2.0 * (phase - floor(phase)) - 1.0
-                Wave.TRIANGLE -> 4.0 * abs(phase - floor(phase + 0.5) - 0.5) - 1.0
+                Wave.TRIANGLE -> triangleWave(phase)
             }
             buf.mix(s, raw * peak * envelope(i, n))
         }
@@ -298,6 +302,12 @@ class Vocalizer(private val volume: Float = 0.35f) {
             return PENTATONIC[idx % 5] + 12 * (idx / 10)
         }
 
+        /**
+         * One cycle of a triangle wave, -1 at the cycle's start, peaking at +1 exactly at the
+         * half-turn, and the same shape again for any phase a whole turn or more along.
+         */
+        fun triangleWave(phase: Double): Double = 4.0 * abs(phase - floor(phase + 0.5)) - 1.0
+
         /** "C#4" -> Hz. Returns null for rests and anything unparsable. */
         fun noteToFreq(note: String): Double? {
             val m = Regex("^([A-Ga-g])([#b]?)(-?\\d)$").find(note.trim()) ?: return null
@@ -343,20 +353,36 @@ class Vocalizer(private val volume: Float = 0.35f) {
                 else -> voice
             }
             // A person's own slight pitch, so two farmers never sound identical, bent by
-            // temperament: the bold a little higher, the aggressive a little lower.
-            val own = (id.hashCode() % 5) - 2
+            // temperament: the bold a little higher, the aggressive a little lower. floorMod
+            // keeps the note in range even for the ids whose hash comes out negative.
+            val own = Math.floorMod(id.hashCode(), 5) - 2
             val temper = ((courage - 0.5f) * 6).toInt() - ((aggression - 0.5f) * 4).toInt()
             val rate = 1.0 + (sociability - 0.5) * 0.4
             return VoiceChoice(chosen, own + temper, rate)
         }
 
+        /**
+         * Reads the string song format. A token's note is kept as written (the renderer skips
+         * what it cannot pitch), while a broken or wild note length is clamped into a sane one,
+         * so a song can never stretch a rendering into hours or collapse it to nothing.
+         */
         fun parseSong(song: String): List<SongNote> =
             song.trim().split(Regex("\\s+")).filter { it.isNotEmpty() }.map { tok ->
                 val (head, lyric) = tok.split("=", limit = 2).let { if (it.size == 2) it[0] to it[1] else it[0] to "" }
                 val parts = head.split(":", limit = 2)
                 val note = parts[0]
-                val beats = parts.getOrNull(1)?.toDoubleOrNull() ?: 1.0
+                val raw = parts.getOrNull(1)?.toDoubleOrNull()
+                val beats = if (raw == null || raw.isNaN() || raw.isInfinite()) 1.0 else raw.coerceIn(MIN_BEATS, MAX_BEATS)
                 SongNote(note, beats, lyric)
             }
+
+        /** Bounds every rendering is kept within. */
+        const val MIN_BPM = 30.0
+        const val MAX_BPM = 300.0
+        const val MIN_BEATS = 0.25
+        const val MAX_BEATS = 16.0
+        const val MIN_HZ = 40.0
+        const val MAX_HZ = 4000.0
+        const val MAX_NOTES = 512
     }
 }

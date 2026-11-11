@@ -10,6 +10,7 @@ import app.rork.p7buzvrzcw3frddi8y50ou.sim.GossipRecord
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.RelationshipState
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.SocialEvents
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.World
+import app.rork.p7buzvrzcw3frddi8y50ou.sim.legacyAffinity
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
@@ -99,28 +100,58 @@ class SocialSystem(private val w: World) {
         }
         relChanges++
         milestones(r)
+        syncAffinity(r)
     }
 
     /**
      * The chronicle notes the turning points of village life as they happen, so the player can
-     * discover them in the journal rather than through any UI meter.
+     * discover them in the journal rather than through any UI meter. Each turning point is noted
+     * once per pair per save — the set of noted milestones travels with the world — so a
+     * friendship that crosses the line again after a cold spell is not news twice.
      */
     private fun milestones(r: RelationshipState) {
         val who = nameOf(r.holder) ?: return
         val about = nameOf(r.other) ?: return
-        val pair = "$who|${about}|${r.friendship}|${r.hostility}"
-        if (pair == lastMilestone) return
-        lastMilestone = pair
-        if (r.friendship >= 60f && r.hostility < 20f) {
-            w.record("$who and $about have become fast friends.")
-        } else if (r.hostility >= 50f) {
-            w.record("$who has fallen out badly with $about.")
-        } else if (r.resentment >= 60f && r.friendship < 25f) {
-            w.record("$who nurses a quiet grudge against $about.")
+        onceMilestone(r.holder, r.other, "first_meeting", r.familiarity >= 12f) {
+            "$who and $about have taken note of one another."
+        }
+        onceMilestone(r.holder, r.other, "friend", r.friendship >= 60f && r.hostility < 20f) {
+            "$who and $about have become fast friends."
+        }
+        onceMilestone(r.holder, r.other, "close_friend", r.friendship >= 85f && r.hostility < 20f) {
+            "$who and $about are hardly ever apart."
+        }
+        onceMilestone(r.holder, r.other, "rivals", r.hostility >= 50f) {
+            "$who has fallen out badly with $about."
+        }
+        onceMilestone(r.holder, r.other, "enemies", r.hostility >= 80f) {
+            "$who and $about are enemies now, and everyone knows it."
+        }
+        onceMilestone(r.holder, r.other, "reconciliation", r.resentment < 20f && r.hostility < 20f && r.familiarity >= 40f) {
+            "$who and $about have made their peace."
+        }
+        onceMilestone(r.holder, r.other, "deterioration", r.resentment >= 60f && r.friendship < 25f) {
+            "$who nurses a quiet grudge against $about."
         }
     }
 
-    private var lastMilestone = ""
+    /**
+     * Records a chronicle line the first time a pair reaches it, and never again. Returns true
+     * when it was news. Open to the dialogue system, so a person's turning towards the player is
+     * noted through the same once-per-pair door.
+     */
+    fun onceMilestone(holder: String, other: String, kind: String, whenTrue: Boolean, text: () -> String): Boolean {
+        if (!whenTrue) return false
+        if (!social.milestones.add("$holder>$other:$kind")) return false
+        w.record(text())
+        w.journalDirty = true
+        return true
+    }
+
+    /** Keeps the legacy single-number mirror of an opinion in step with the real dimensions. */
+    private fun syncAffinity(r: RelationshipState) {
+        w.npcById[r.holder]?.s?.affinity = legacyAffinity(r)
+    }
 
     /** One-word reading of an opinion, for views and dialogue. The player's copy shows this too. */
     fun standing(holder: String, other: String): String {
@@ -158,10 +189,51 @@ class SocialSystem(private val w: World) {
             val others = involved.filter { it != holder }.distinct()
             val memory = addMemory(holder, type, others, sentiment, significance, witnessed = true, place = place, text = text)
                 ?: continue
-            made = memory
+            if (made == null) made = memory
             for (other in others) applyRules(holder, other, type, significance, sentiment)
         }
+        // A deed weighty enough to be worth talking about becomes a story on the spot, told by
+        // one of the people who saw it. The witness's memory id names the event, so the same
+        // happening can never start two stories, and the tale stays traceable to its source.
+        if (made != null && significance >= GOSSIP_MIN_SIGNIFICANCE) {
+            val teller = witnessedBy.firstOrNull { it != PLAYER_ID && w.npcById[it] != null } ?: return made
+            val subject = involved.firstOrNull { it != teller } ?: teller
+            startStory(
+                eventRef = made.id,
+                category = type,
+                subject = subject,
+                source = teller,
+                // An event that came with its own words tells the story in them; otherwise the
+                // plain lines stand.
+                text = text.ifBlank { storyLine(type, involved.map { nameOf(it) ?: "someone" }, place) },
+                importance = significance,
+            )
+        }
         return made
+    }
+
+    /** The plain words a story starts with; the telling may bend them later. */
+    private fun storyLine(category: String, names: List<String>, place: String): String {
+        val at = if (place.isNotEmpty()) " at $place" else ""
+        val a = names.getOrNull(0) ?: "someone"
+        val b = names.getOrNull(1) ?: "someone else"
+        return when (category) {
+            SocialEvents.RESCUE -> "$a was saved from a beast by $b"
+            SocialEvents.ARGUMENT -> "$a and $b came to words$at"
+            SocialEvents.INSULT -> "$a insulted $b$at"
+            SocialEvents.BETRAYAL -> "$a was betrayed by $b"
+            SocialEvents.THEFT -> "$a accuses $b of theft"
+            SocialEvents.CRIME_WITNESSED -> "$a saw $b do a shameful thing"
+            SocialEvents.PUBLIC_HUMILIATION -> "$a was humiliated before the whole village by $b"
+            SocialEvents.PROMISE_BROKEN -> "$a says $b broke a promise"
+            SocialEvents.TRADE_DISPUTE -> "$a and $b fell out over a bargain"
+            SocialEvents.BRAVERY_WITNESSED -> "$b showed great courage before $a's eyes"
+            SocialEvents.RECONCILIATION -> "$a and $b made their peace$at"
+            SocialEvents.FRIENDSHIP_FORMED -> "$a and $b have become fast friends"
+            SocialEvents.HELP_RECEIVED -> "$a was helped by $b"
+            SocialEvents.HELP_REFUSED -> "$a asked $b for help, and was refused"
+            else -> "$a and $b were seen together$at"
+        }
     }
 
     /** Adds one memory to one keeper, honouring duplicates and the retention cap. */
@@ -196,17 +268,60 @@ class SocialSystem(private val w: World) {
         return entry
     }
 
-    /** Keeps each life's memory store finite: recent and weighty memories crowd out small ones. */
+    /**
+     * Keeps each life's memory store strictly finite — no memory, however weighty, escapes the
+     * cap. Recent and small memories are forgotten first; when only the significant remain, the
+     * oldest two of one kind are consolidated into a single condensed memory ("a long history
+     * of rescue"), so the fact of a life stays even as its details give way.
+     */
     private fun prune(holder: String, keeper: Npc) {
         val now = save.minutes
         while (keeper.s.experiences.size > MAX_MEMORIES) {
             val weakest = keeper.s.experiences
                 .withIndex()
                 .filter { it.value.significance < MemoryEntry.PROTECTED_SIGNIFICANCE }
-                .minByOrNull { effective(it.value, now) } ?: return
-            keeper.s.experiences.removeAt(weakest.index)
-            memoriesPruned++
+                .minByOrNull { effective(it.value, now) }
+            if (weakest != null) {
+                keeper.s.experiences.removeAt(weakest.index)
+                memoriesPruned++
+                continue
+            }
+            // Every remaining memory is protected: consolidate rather than exceed the bound.
+            // With more memories than the cap, some two at least share a kind.
+            if (!consolidateOldest(holder, keeper, now)) return
         }
+    }
+
+    /**
+     * Merges the two oldest memories of the same kind into one condensed entry — minute, weight
+     * and reach of the fuller one, confidence of the weaker, and a text that says the history
+     * plainly. Returns false when there is nothing left to merge.
+     */
+    private fun consolidateOldest(holder: String, keeper: Npc, now: Double): Boolean {
+        val byKind = keeper.s.experiences.groupBy { it.type }
+        val kind = byKind.entries.filter { it.value.size >= 2 }.minByOrNull { it.key } ?: return false
+        val two = kind.value.sortedBy { it.minute }.take(2)
+        val older = two[0]
+        val newer = two[1]
+        val merged = MemoryEntry(
+            id = "c:${holder}:${kind.key}:${save.minutes.toInt()}:${rnd.nextInt(1_000_000)}",
+            type = kind.key,
+            minute = max(older.minute, newer.minute),
+            significance = max(older.significance, newer.significance),
+            sentiment = if (older.sentiment == newer.sentiment) older.sentiment else 0,
+            confidence = min(older.confidence, newer.confidence),
+            witnessed = older.witnessed && newer.witnessed,
+            others = (older.others + newer.others).distinct(),
+            place = newer.place,
+            text = "A long history of ${kind.key.replace('_', ' ')} with " +
+                (older.others + newer.others).distinct().map { nameOf(it) ?: "others" }.distinct().joinToString(),
+        )
+        keeper.s.experiences.remove(older)
+        keeper.s.experiences.remove(newer)
+        keeper.s.experiences += merged
+        memoriesPruned++
+        w.journalDirty = true
+        return true
     }
 
     /**
@@ -589,12 +704,28 @@ class SocialSystem(private val w: World) {
         }
     }
 
-    private fun coworkerOf(n: Npc): String? = w.npcs
-        .firstOrNull { it !== n && it.workName == n.workName && it.workName.isNotEmpty() }?.def?.id
+    /**
+     * Who shares [n]'s workplace, drawn from a small index built once — the roster and its
+     * workplaces are fixed after the world is built, so a scan per call would buy nothing.
+     */
+    private var workIndex: Map<String, List<Npc>>? = null
 
-    private fun acquaintanceOf(n: Npc): String? = w.npcs
-        .filter { it !== n && rel(n.def.id, it.def.id).familiarity > 5f }
-        .maxByOrNull { rel(n.def.id, it.def.id).friendship }?.def?.id
+    private fun coworkerOf(n: Npc): String? {
+        if (n.workName.isEmpty()) return null
+        val index = workIndex ?: w.npcs.groupBy { it.workName }.also { workIndex = it }
+        return index[n.workName]?.firstOrNull { it !== n }?.def?.id
+    }
+
+    /**
+     * The person [n] is closest to among those they truly know, chosen from the opinions they
+     * already hold — never a scan of the whole village, which would also fabricate a blank
+     * opinion of everyone in it. The player is not a village job: stories about them are not
+     * worked into a distant life's day.
+     */
+    private fun acquaintanceOf(n: Npc): String? = social.relationships.values
+        .filter { it.holder == n.def.id && it.other != PLAYER_ID && it.familiarity > 5f }
+        .maxByOrNull { it.friendship }
+        ?.let { w.npcById[it.other]?.def?.id }
 
     private fun nameOf(id: String): String? = if (id == PLAYER_ID) pName() else w.npcById[id]?.def?.name
 
@@ -609,5 +740,7 @@ class SocialSystem(private val w: World) {
         const val DUPLICATE_WINDOW = 1440.0
         /** Game minutes before the same pair interact socially again. */
         const val COOLDOWN_MINUTES = 90.0
+        /** An event weightier than this becomes a story worth telling. */
+        const val GOSSIP_MIN_SIGNIFICANCE = 25f
     }
 }

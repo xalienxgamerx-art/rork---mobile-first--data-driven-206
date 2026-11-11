@@ -83,11 +83,35 @@ object VoicePlayer {
                     .setBufferSizeInBytes(maxOf(pcm.size * 2, minBuffer))
                     .build()
                 track.play()
-                val written = track.write(pcm, 0, pcm.size)
                 current.set(track)
-                if (written < 0) {
+                // The player accepts what it can, not always everything at once: a write may
+                // take part of the buffer and leave the rest for later. Every part is written
+                // until the line is out, with bounded patience when the buffer stays full and
+                // a reported error rather than silence when it refuses outright.
+                var offset = 0
+                var stalled = 0
+                var refused = 0
+                while (offset < pcm.size) {
+                    val n = track.write(pcm, offset, pcm.size - offset)
+                    if (n < 0) {
+                        refused = n
+                        break
+                    }
+                    if (n == 0) {
+                        if (++stalled > 500) break // ~5 s of a full buffer: give up, report below
+                        Thread.sleep(10)
+                        continue
+                    }
+                    stalled = 0
+                    offset += n
+                }
+                if (refused < 0 || offset < pcm.size) {
                     Diagnostics.updateVoice { it.copy(errors = it.errors + 1) }
-                    Diagnostics.record("voice", "The player refused a spoken line (write returned $written).")
+                    Diagnostics.record(
+                        "voice",
+                        "A spoken line was only partly written (${offset} of ${pcm.size} samples" +
+                            if (refused < 0) ", the player returned $refused)." else ", the buffer stayed full).",
+                    )
                 } else {
                     Diagnostics.updateVoice { it.copy(linesVoiced = it.linesVoiced + 1) }
                 }

@@ -121,6 +121,50 @@ class VocalizerTest {
     }
 
     @Test
+    fun `the triangle wave peaks at the half-turn and returns home`() {
+        assertEquals(-1.0, Vocalizer.triangleWave(0.0), 1e-9)
+        assertEquals(0.0, Vocalizer.triangleWave(0.25), 1e-9)
+        assertEquals(1.0, Vocalizer.triangleWave(0.5), 1e-9)
+        assertEquals(0.0, Vocalizer.triangleWave(0.75), 1e-9)
+        assertEquals(-1.0, Vocalizer.triangleWave(1.0), 1e-9)
+        // A whole turn or more along, the shape begins again exactly.
+        assertEquals(Vocalizer.triangleWave(0.25), Vocalizer.triangleWave(1.25), 1e-9)
+        assertEquals(Vocalizer.triangleWave(0.5), Vocalizer.triangleWave(2.5), 1e-9)
+        for (i in 0..200) {
+            val x = i / 50.0
+            assertTrue("wave leaves its bounds at x=$x", Vocalizer.triangleWave(x) in -1.0..1.0)
+        }
+    }
+
+    @Test
+    fun `a person's own pitch stays in range whatever the sign of their id`() {
+        val middle = mapOf("aggression" to 0.5f, "courage" to 0.5f, "sociability" to 0.5f)
+        val ids = List(200) { "npc-variant-$it" } + listOf("", "pop_farmer_1", "a very long identifier for a humble shepherd")
+        for (id in ids) {
+            val choice = Vocalizer.chooseVoice(30, personality = middle, id = id)
+            assertTrue("pitch out of range for '$id'", choice.pitch in -7..7)
+            assertEquals("the same id sounds the same twice", choice, Vocalizer.chooseVoice(30, personality = middle, id = id))
+        }
+    }
+
+    @Test
+    fun `a broken song is clamped into something singable, never nonsense`() {
+        assertEquals(1.0, Vocalizer.parseSong("C4:banana").single().beats, 0.0)
+        assertEquals(1.0, Vocalizer.parseSong("C4:NaN").single().beats, 0.0)
+        assertEquals(Vocalizer.MIN_BEATS, Vocalizer.parseSong("C4:0").single().beats, 0.0)
+        assertEquals(Vocalizer.MAX_BEATS, Vocalizer.parseSong("C4:9999").single().beats, 0.0)
+        // A wild tempo lands within the bounds; an absurd one cannot stretch a line into hours.
+        val fast = v.renderSing("C4:1=la D4:1=la", bpm = 300.0).seconds
+        assertEquals(fast, v.renderSing("C4:1=la D4:1=la", bpm = 100_000.0).seconds, 1e-6)
+        assertEquals(v.renderSing("C4:1", bpm = 100.0).seconds, v.renderSing("C4:1", bpm = Double.NaN).seconds, 1e-6)
+        // A preposterously long song is trimmed, and every sample stays in range.
+        val long = v.renderSing(List(2000) { Vocalizer.SongNote("C4") }, bpm = 60.0)
+        assertTrue(long.samples.all { it in -1f..1f })
+        // An empty song renders a short silence rather than a crash.
+        assertTrue(v.renderSing("").samples.isNotEmpty())
+    }
+
+    @Test
     fun `character shapes the sound`() {
         val middle = mapOf("aggression" to 0.5f, "courage" to 0.5f, "sociability" to 0.5f)
         // A bully grinds like a robot; a giant stays a giant.

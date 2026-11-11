@@ -413,5 +413,26 @@ object SaveBinding {
             }
         }
         social.cooldowns.entries.removeAll { save.minutes - it.value > 2880.0 }
+
+        // Chronicle milestones: their keys name a pair, so both ends are rewritten like the
+        // opinions above; a milestone about a person nothing defines has nothing to describe.
+        // The kind is split off at the last colon, for ids themselves carry colons.
+        for (key in social.milestones.toList()) {
+            val body = key.substringBeforeLast(':')
+            val kind = key.substringAfterLast(':', "")
+            val a = canonicalNpc(body.substringBefore('>'))
+            val b = canonicalNpc(body.substringAfter('>'))
+            val newKey = if (a == null || b == null || a == b || kind.isEmpty()) null else "$a>$b:$kind"
+            if (newKey == key) continue
+            social.milestones.remove(key)
+            if (newKey != null && newKey !in social.milestones) social.milestones.add(newKey)
+        }
+
+        // The legacy single-number affinity is a mirror of the social world, so a loaded save
+        // starts with the two in agreement — old saves included, whose opinions the migration
+        // built from their affinities in the first place.
+        for (npc in save.npcs) {
+            social.relationships["${npc.id}>$PLAYER_ID"]?.let { npc.affinity = legacyAffinity(it) }
+        }
     }
 }

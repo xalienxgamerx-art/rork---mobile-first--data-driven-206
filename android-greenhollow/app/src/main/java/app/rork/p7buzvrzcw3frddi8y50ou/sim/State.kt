@@ -132,6 +132,10 @@ data class SocialSave(
     val gossip: MutableList<GossipRecord> = mutableListOf(),
     /** Pair "a|b" (ids in sorted order) -> world minute the pair last truly interacted. */
     val cooldowns: MutableMap<String, Double> = mutableMapOf(),
+    /** Chronicle turning points already noted, as "holder>other:kind", so each is recorded once
+     *  per pair per lifetime of the save, not once per session. Saves written before this field
+     *  decode with an empty set. */
+    val milestones: MutableSet<String> = mutableSetOf(),
 )
 
 @Serializable
@@ -323,6 +327,17 @@ data class SaveGame(
     /** Current state of the world's random sequence, so a reloaded world continues it. */
     var rngState: Long = 0,
 )
+
+/**
+ * The single-number standing an older save format kept, derived from the authoritative social
+ * dimensions. Everything that still speaks "affinity" — prices, access checks, pack conditions,
+ * the journal's number — reads this mirror, which the social system refreshes whenever an
+ * opinion moves, so the two can never disagree.
+ */
+fun legacyAffinity(r: RelationshipState): Int = (
+    r.friendship * 0.5f + r.affection * 0.2f + r.trust * 0.15f + r.respect * 0.1f +
+        r.familiarity * 0.05f - r.hostility * 0.5f - r.resentment * 0.25f
+    ).coerceIn(0f, 100f).toInt()
 
 /** The kinds of things that happen to people and are remembered. Extensible: a pack or a later
  *  milestone may add its own words, and the simulation treats unknown kinds by their sentiment. */

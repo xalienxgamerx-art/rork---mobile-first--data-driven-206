@@ -6,11 +6,16 @@ import app.rork.p7buzvrzcw3frddi8y50ou.data.ProfessionDef
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.GossipKnowledge
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.InputState
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.MemoryEntry
+import app.rork.p7buzvrzcw3frddi8y50ou.sim.NpcActions
+import app.rork.p7buzvrzcw3frddi8y50ou.sim.NpcState
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.PLAYER_ID
+import app.rork.p7buzvrzcw3frddi8y50ou.sim.RelationshipState
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.SaveBinding
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.SaveGame
+import app.rork.p7buzvrzcw3frddi8y50ou.sim.SaveStore
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.SocialEvents
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.World
+import app.rork.p7buzvrzcw3frddi8y50ou.sim.legacyAffinity
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.systems.DialogueSystem
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.systems.DiscoverySystem
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.systems.InventorySystem
@@ -50,6 +55,10 @@ class SocialTest {
                 id = "wren", name = "Wren", profession = "fisher", home = "cottage",
                 personality = mapOf("generosity" to 0.0f, "sociability" to 0.1f, "loyalty" to 0.0f, "courage" to 0.1f, "aggression" to 0.9f),
             ),
+            NpcDef(
+                id = "finn", name = "Finn", profession = "fisher", home = "cottage",
+                personality = mapOf("generosity" to 0.5f, "sociability" to 1.0f, "loyalty" to 1.0f, "courage" to 0.9f, "aggression" to 0.1f),
+            ),
         ),
     )
 
@@ -74,8 +83,10 @@ class SocialTest {
 
     private fun World.hawk() = npcById[content.npcs.canonical("hawk")]!!
     private fun World.wren() = npcById[content.npcs.canonical("wren")]!!
+    private fun World.finn() = npcById[content.npcs.canonical("finn")]!!
     private fun World.hawkId() = content.npcs.canonical("hawk")
     private fun World.wrenId() = content.npcs.canonical("wren")
+    private fun World.finnId() = content.npcs.canonical("finn")
 
     // ------------------------------------------------------------ relationships
 
@@ -325,6 +336,257 @@ class SocialTest {
             w.social.adjust(h, r, "hostility", 6f)
         }
         assertTrue("a chronicle line marks the falling out", w.save.history.any { it.text.contains("fallen out") })
+    }
+
+    // ------------------------------------------------------------ events become stories
+
+    @Test
+    fun `a real rescue becomes a story on the witness's lips`() {
+        val w = socialWorld()
+        // The same entry CombatSystem calls when the player brings down a beast.
+        w.social.playerRescue(w.wren(), "wolf")
+
+        val story = w.save.social.gossip.single()
+        assertEquals(SocialEvents.RESCUE, story.category)
+        assertEquals("the tale is about the one who did the deed", PLAYER_ID, story.subject)
+        assertEquals("and it begins with the one who saw it", w.wrenId(), story.source)
+        assertTrue("the beast is in the tale", story.text.contains("wolf"))
+        assertTrue(
+            "the tale traces back to the witness's own memory of it",
+            w.wren().s.experiences.any { it.id == story.eventRef },
+        )
+    }
+
+    @Test
+    fun `an event nobody witnessed starts no story`() {
+        val w = socialWorld()
+        w.social.event(SocialEvents.RESCUE, listOf(w.wrenId(), PLAYER_ID), 1, 75f, witnessedBy = listOf(PLAYER_ID))
+        assertTrue("no teller, no tale", w.save.social.gossip.isEmpty())
+    }
+
+    @Test
+    fun `small talk stays small and starts no story`() {
+        val w = socialWorld()
+        w.social.event(SocialEvents.CONVERSATION, listOf(w.wrenId(), w.hawkId()), 1, 12f)
+        assertTrue(w.save.social.gossip.isEmpty())
+    }
+
+    @Test
+    fun `the same deed twice in a day starts one story, not two`() {
+        val w = socialWorld()
+        w.social.playerRescue(w.wren(), "wolf")
+        w.save.minutes += 120.0
+        w.social.playerRescue(w.wren(), "wolf")
+        assertEquals(1, w.save.social.gossip.size)
+    }
+
+    @Test
+    fun `many witnesses of one deed make one story, not a story each`() {
+        val w = socialWorld()
+        w.social.event(
+            SocialEvents.BRAVERY_WITNESSED, listOf(w.wrenId(), PLAYER_ID), 1, 40f,
+            witnessedBy = listOf(w.wrenId(), w.hawkId()),
+        )
+        val story = w.save.social.gossip.single()
+        assertEquals(w.wrenId(), story.source)
+        for (witness in listOf(w.wrenId(), w.hawkId())) {
+            assertTrue(
+                "both witnesses keep their own memory of it",
+                w.save.npcs.first { it.id == witness }.experiences.any { it.type == SocialEvents.BRAVERY_WITNESSED },
+            )
+        }
+    }
+
+    @Test
+    fun `a story loses confidence and gains bending with every hop, but stays the same story`() {
+        val w = socialWorld()
+        val h = w.hawkId(); val r = w.wrenId(); val f = w.finnId()
+        w.social.startStory("e9", SocialEvents.RESCUE, PLAYER_ID, h, "The traveller saved Wren from a wolf", importance = 95f)
+        val story = w.save.social.gossip.single()
+        // Deep trust makes the tellings certain, so only the hops are under test.
+        w.social.adjust(h, r, "trust", 100f)
+        w.social.adjust(r, f, "trust", 100f)
+
+        assertTrue(w.social.shareGossip(w.hawk(), w.wren()))
+        val firstHop = story.holders[r]!!
+        assertTrue(w.social.shareGossip(w.wren(), w.finn()))
+        val secondHop = story.holders[f]!!
+
+        assertTrue("two hearths, less certainty", secondHop.confidence < firstHop.confidence)
+        assertTrue("two hearths, more bending", secondHop.distortion > firstHop.distortion)
+        assertEquals("the origin survives the journey", "e9", story.eventRef)
+    }
+
+    @Test
+    fun `an unwilling teller refuses far more often than they tell`() {
+        val w = socialWorld()
+        val wren = w.wren()
+        for (i in 1..20) {
+            w.social.startStory("e$i", SocialEvents.RESCUE, PLAYER_ID, w.wrenId(), "Tale number $i", importance = 0f)
+        }
+        var told = 0
+        repeat(20) { if (w.social.shareGossip(wren, w.hawk())) told++ }
+        assertTrue("refusals were counted", w.social.gossipRejected > 0)
+        assertTrue("a dull story from a cold acquaintance hardly ever travels", told < 10)
+    }
+
+    @Test
+    fun `a distant life's socialising stays bounded`() {
+        val w = socialWorld()
+        val finn = w.finn()
+        w.social.adjust(w.finnId(), w.hawkId(), "familiarity", 20f) // they know of each other
+        repeat(150) {
+            w.social.abstractLife(finn, NpcActions.SOCIAL, 10f)
+            w.save.minutes += 200.0
+        }
+        assertTrue("the village does not drown in tales", w.save.social.gossip.size <= SocialSystem.MAX_STORIES)
+        assertTrue("a distant life keeps a finite memory", w.finn().s.experiences.size <= SocialSystem.MAX_MEMORIES)
+        assertTrue("the meetings were real but bounded", w.social.socialCompleted <= 150)
+    }
+
+    @Test
+    fun `a distant life keeps company with a workmate, chosen without scanning the village`() {
+        val w = socialWorld()
+        val finn = w.finn()
+        repeat(30) {
+            w.social.abstractLife(finn, NpcActions.WORK, 12f)
+            w.save.minutes += 100.0
+        }
+        val mates = w.save.social.relationships.values
+            .filter { it.holder == w.finnId() && it.familiarity > 0f }
+            .map { it.other }
+        assertTrue("the work was shared with somebody at the harbour", mates.isNotEmpty())
+        assertTrue(
+            "nobody outside the workplace was fetched",
+            mates.all { it == w.hawkId() || it == w.wrenId() },
+        )
+    }
+
+    @Test
+    fun `looking for an acquaintance manufactures no blank opinions`() {
+        val w = socialWorld()
+        val before = w.save.social.relationships.size
+        w.social.abstractLife(w.finn(), NpcActions.SOCIAL, 10f) // no acquaintances yet
+        assertEquals("the village was not surveyed into opinions", before, w.save.social.relationships.size)
+    }
+
+    // ------------------------------------------------------------ bounded memory
+
+    @Test
+    fun `even a life of only great deeds stays within bounds, because deeds consolidate`() {
+        val w = socialWorld()
+        val wren = w.wren()
+        for (day in 1..40) {
+            w.save.minutes += 1500.0
+            w.social.playerRescue(wren, "wolf") // every one protected, so pruning alone cannot help
+        }
+        assertTrue("the store stays finite however great the deeds", wren.s.experiences.size <= SocialSystem.MAX_MEMORIES)
+        assertTrue(
+            "the past was condensed, not discarded in silence",
+            wren.s.experiences.any { it.text.contains("long history") },
+        )
+        assertTrue("nothing but rescues was ever known", wren.s.experiences.all { it.type == SocialEvents.RESCUE })
+        assertTrue(w.social.memoriesPruned > 0)
+    }
+
+    @Test
+    fun `a capped life survives a save and reload with its history intact`() {
+        val w = socialWorld()
+        val wren = w.wren()
+        for (day in 1..30) {
+            w.save.minutes += 1500.0
+            w.social.playerRescue(wren, "wolf")
+        }
+        assertTrue(wren.s.experiences.size <= SocialSystem.MAX_MEMORIES)
+
+        val reloaded = SaveStore.decode(SaveStore.encode(w.save))
+        val again = reloaded.npcs.single { it.id == w.wrenId() }
+        assertEquals(wren.s.experiences, again.experiences)
+        assertTrue(again.experiences.size <= SocialSystem.MAX_MEMORIES)
+    }
+
+    // ------------------------------------------------------------ chronicle milestones
+
+    @Test
+    fun `a chronicle milestone is noted once, however often the line is crossed again`() {
+        val w = socialWorld()
+        val h = w.hawkId(); val r = w.wrenId()
+        fun fastFriends() = w.save.history.count { it.text.contains("fast friends") }
+
+        repeat(12) { w.social.adjust(h, r, "friendship", 6f) }
+        assertEquals(1, fastFriends())
+        // The friendship frays and mends; the chronicle does not tell the same news twice.
+        w.social.adjust(h, r, "friendship", -40f)
+        w.social.adjust(h, r, "friendship", 40f)
+        assertEquals(1, fastFriends())
+    }
+
+    @Test
+    fun `a chronicle milestone survives a save and reload`() {
+        val w = socialWorld()
+        repeat(12) { w.social.adjust(w.hawkId(), w.wrenId(), "friendship", 6f) }
+        assertTrue(w.save.social.milestones.contains("${w.hawkId()}>${w.wrenId()}:friend"))
+
+        val reloaded = SaveStore.decode(SaveStore.encode(w.save))
+        assertTrue(
+            "the noted milestone travelled with the world",
+            reloaded.social.milestones.contains("${w.hawkId()}>${w.wrenId()}:friend"),
+        )
+    }
+
+    @Test
+    fun `milestones that name a stranger are rewritten like every other opinion`() {
+        val content = TestPacks.build(socialPack())
+        val save = SaveGame(minutes = 1000.0)
+        val h = content.npcs.canonical("hawk"); val r = content.npcs.canonical("wren")
+        save.social.milestones.add("$h>$r:friend")
+        save.social.milestones.add("$h>ghost:rivals")
+
+        SaveBinding.bind(save, content)
+
+        assertTrue("the real milestone survives", save.social.milestones.contains("$h>$r:friend"))
+        assertFalse("a milestone about nobody is let go", save.social.milestones.any { it.contains("ghost") })
+    }
+
+    // ------------------------------------------------------------ one authoritative relationship system
+
+    @Test
+    fun `the journal's number is a mirror of the social world, never a second ledger`() {
+        val w = socialWorld()
+        val wren = w.wren()
+        val r = w.social.rel(w.wrenId(), PLAYER_ID)
+
+        w.dialogue.warm(wren, 20)
+        assertEquals(legacyAffinity(r), wren.s.affinity)
+        w.dialogue.warm(wren, -30)
+        assertEquals("a cooling is mirrored just as exactly", legacyAffinity(r), wren.s.affinity)
+    }
+
+    @Test
+    fun `dialogue greets by the social world's measure, not by an old number`() {
+        val w = socialWorld()
+        val wren = w.wren()
+        w.social.adjust(w.wrenId(), PLAYER_ID, "friendship", 60f)
+        assertEquals("real friendship is greeted as friendship", "friend", w.dialogue.relationOf(wren))
+
+        w.social.adjust(w.wrenId(), PLAYER_ID, "friendship", -60f)
+        w.social.adjust(w.wrenId(), PLAYER_ID, "resentment", 60f)
+        assertEquals("a grudge is greeted as rivalry", "rival", w.dialogue.relationOf(wren))
+    }
+
+    @Test
+    fun `a loaded save's affinities are brought into agreement with its opinions`() {
+        val content = TestPacks.build(socialPack())
+        val save = SaveGame(minutes = 1000.0)
+        val h = content.npcs.canonical("hawk")
+        save.social.relationships["$h>$PLAYER_ID"] = RelationshipState(holder = h, other = PLAYER_ID, friendship = 80f, familiarity = 50f)
+        save.npcs += NpcState(id = h, affinity = 5)
+
+        SaveBinding.bind(save, content)
+
+        val mirror = legacyAffinity(save.social.relationships["$h>$PLAYER_ID"]!!)
+        assertTrue("the opinion won the argument over the stale number", mirror > 5)
+        assertEquals(mirror, save.npcs.single { it.id == h }.affinity)
     }
 
     // ------------------------------------------------------------ binding

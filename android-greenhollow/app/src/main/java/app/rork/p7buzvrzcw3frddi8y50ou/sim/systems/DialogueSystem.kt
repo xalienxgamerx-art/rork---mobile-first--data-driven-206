@@ -12,6 +12,7 @@ import app.rork.p7buzvrzcw3frddi8y50ou.sim.Progression
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.ReplyView
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.UiEvent
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.World
+import app.rork.p7buzvrzcw3frddi8y50ou.sim.legacyAffinity
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlin.math.atan2
 import kotlin.math.max
@@ -34,10 +35,16 @@ class DialogueSystem(private val w: World, private val out: MutableStateFlow<Dia
 
     // ------------------------------------------------------------ relations
 
+    /**
+     * How the dialogue greets someone, read from the one authoritative social world: the same
+     * measures the small talk speaks and the journal shows. A friend is a person whose opinion
+     * of the player carries real friendship; a rival is one moved by grudge or hostility.
+     */
     fun relationOf(n: Npc): String = when {
         n.def.relation == "family" -> "family"
-        n.s.affinity >= 50 -> "friend"
-        n.s.affinity < 25 -> "rival"
+        w.social.dim(n.def.id, PLAYER_ID, "friendship") >= 55f -> "friend"
+        w.social.dim(n.def.id, PLAYER_ID, "hostility") >= 40f -> "rival"
+        w.social.dim(n.def.id, PLAYER_ID, "resentment") >= 55f -> "rival"
         else -> "stranger"
     }
 
@@ -57,23 +64,29 @@ class DialogueSystem(private val w: World, private val out: MutableStateFlow<Dia
         w.journalDirty = true
     }
 
-    /** Changes how someone feels about the player, noting the moment they become a friend. */
+    /**
+     * Changes how someone feels about the player. The full relationship record is the only
+     * ledger; the old single-number affinity is refreshed from it as a mirror for the places
+     * that still speak its language. Crossing into friendship is a chronicle turning point,
+     * noted once, through the same per-pair door as every other milestone.
+     */
     fun warm(n: Npc, amount: Int) {
         if (amount == 0) return
-        val before = n.s.affinity
-        n.s.affinity = (before + amount).coerceIn(0, 100)
-        // The same warmth lands in the full relationship record, where it can shade everything else.
+        val social = w.social
+        val r = social.rel(n.def.id, PLAYER_ID)
+        val before = r.friendship
         if (amount > 0) {
-            w.social.adjust(n.def.id, PLAYER_ID, "friendship", amount * 0.6f)
-            w.social.adjust(n.def.id, PLAYER_ID, "affection", amount * 0.4f)
-            w.social.adjust(n.def.id, PLAYER_ID, "familiarity", amount * 0.3f)
+            social.adjust(n.def.id, PLAYER_ID, "friendship", amount * 0.6f)
+            social.adjust(n.def.id, PLAYER_ID, "affection", amount * 0.4f)
+            social.adjust(n.def.id, PLAYER_ID, "familiarity", amount * 0.3f)
         } else {
-            w.social.adjust(n.def.id, PLAYER_ID, "friendship", amount * 0.6f)
-            w.social.adjust(n.def.id, PLAYER_ID, "resentment", -amount * 0.4f)
+            social.adjust(n.def.id, PLAYER_ID, "friendship", amount * 0.6f)
+            social.adjust(n.def.id, PLAYER_ID, "resentment", -amount * 0.4f)
         }
-        if (before < 50 && n.s.affinity >= 50 && n.def.relation != "family") {
-            w.record("${n.def.name} now counts ${p.name} as a friend.")
+        social.onceMilestone(n.def.id, PLAYER_ID, "friend", before < 55f && r.friendship >= 55f && n.def.relation != "family") {
+            "${n.def.name} now counts ${p.name} as a friend."
         }
+        n.s.affinity = legacyAffinity(r)
         w.journalDirty = true
     }
 
