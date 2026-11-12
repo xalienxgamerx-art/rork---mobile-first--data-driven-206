@@ -442,6 +442,60 @@ object ContentBuilder {
                 materials.defs[id] = d.copy(itemId = item)
             }
         }
+        // A building's classification (what it is for), functional zones and hand-authored
+        // rooms form the semantic layer; none of it changes how the building is built or
+        // rendered. Explicit words win; a legacy type maps to a classification; anything
+        // unknown is reported and left blank, never guessed.
+        for ((id, d) in buildings.defs.toList()) {
+            var classification = d.classification.trim().lowercase()
+            if (classification.isNotEmpty()) {
+                if (classification !in BuildingTaxonomy.CLASSIFICATIONS) {
+                    warn(buildings, id, "The building '$id' claims the classification '${d.classification}', which is not one of: ${BuildingTaxonomy.CLASSIFICATIONS.joinToString()}. It is left unclassified rather than guessed.")
+                    classification = ""
+                }
+            } else {
+                val legacy = BuildingTaxonomy.classifyType(d.type)
+                if (legacy == null) {
+                    warn(buildings, id, "The building '$id' has the type '${d.type}', which has no standard classification. Give it an explicit classification (one of: ${BuildingTaxonomy.CLASSIFICATIONS.joinToString()}). It is left unclassified for now.")
+                }
+                classification = legacy ?: ""
+            }
+            val zones = LinkedHashSet<String>()
+            for (z in d.zones) {
+                val zl = z.trim().lowercase()
+                if (zl in BuildingTaxonomy.ZONES) zones.add(zl)
+                else warn(buildings, id, "The building '$id' declares the zone '$z', which is not one of: ${BuildingTaxonomy.ZONES.joinToString()}. It was left out.")
+            }
+            val rooms = ArrayList<BuildingRoomDef>()
+            if (d.procedural && d.rooms.isNotEmpty()) {
+                warn(buildings, id, "The building '$id' is procedural and grows its rooms itself, so its ${d.rooms.size} declared room${if (d.rooms.size == 1) "" else "s"} were left out.")
+            } else {
+                val seenRooms = HashSet<String>()
+                for (r in d.rooms) {
+                    if (!seenRooms.add(r.id)) {
+                        warn(buildings, id, "The building '$id' declares the room '${r.id}' twice. The first one was kept.")
+                        continue
+                    }
+                    var zone = r.zone.trim().lowercase()
+                    if (zone.isNotEmpty() && zone !in BuildingTaxonomy.ZONES) {
+                        warn(buildings, id, "The building '$id' gives the room '${r.id}' the zone '${r.zone}', which is not one of: ${BuildingTaxonomy.ZONES.joinToString()}. The room keeps its purpose but has no zone.")
+                        zone = ""
+                    }
+                    var access = r.access.trim().lowercase()
+                    if (access.isNotEmpty() && access !in BuildingTaxonomy.ACCESS_LEVELS) {
+                        warn(buildings, id, "The building '$id' gives the room '${r.id}' the access '${r.access}', which is not one of: ${BuildingTaxonomy.ACCESS_LEVELS.joinToString()}. It is treated as unrestricted.")
+                        access = ""
+                    }
+                    var floor = r.floor
+                    if (floor < 0) {
+                        warn(buildings, id, "The building '$id' puts the room '${r.id}' on floor $floor, and floors count up from the ground. It sits on the ground floor instead.")
+                        floor = 0
+                    }
+                    rooms += r.copy(zone = zone, access = access, floor = floor)
+                }
+            }
+            buildings.defs[id] = d.copy(classification = classification, zones = zones.toList(), rooms = rooms)
+        }
         for ((id, d) in professions.defs.toList()) {
             val w = workplace(professions.pack(id), d.workplace)
             if (w == null) warn(professions, id, "The profession '$id' works at '${d.workplace}', which is not a building, building type or work spot. They will have no workplace.")

@@ -2,6 +2,7 @@ package app.rork.p7buzvrzcw3frddi8y50ou.sim
 
 import app.rork.p7buzvrzcw3frddi8y50ou.Diagnostics
 import app.rork.p7buzvrzcw3frddi8y50ou.data.BuildingDef
+import app.rork.p7buzvrzcw3frddi8y50ou.data.BuildingDirectory
 import app.rork.p7buzvrzcw3frddi8y50ou.data.ContentRegistry
 import app.rork.p7buzvrzcw3frddi8y50ou.data.CreatureDef
 import app.rork.p7buzvrzcw3frddi8y50ou.data.NpcDef
@@ -120,6 +121,9 @@ class World(
     val boxes = ArrayList<Box>()
     val inn: BuildingDef? = content.buildings.values.firstOrNull { it.type == "inn" }
     val shop: BuildingDef? = content.buildings.values.firstOrNull { it.type == "shop" }
+
+    /** The semantic layer: classifications, functional zones, rooms and ext/int instance ids per building. */
+    val buildingLogic = BuildingDirectory(content)
 
     // Runtime only. None of this is saved.
     var vy = 0f

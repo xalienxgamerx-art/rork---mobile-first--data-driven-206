@@ -242,6 +242,29 @@ data class BuildingDef(
     val genFloors: Int = 0,
     val genWidth: Int = 0,
     val genDepth: Int = 0,
+    /** What the building is for; one of BuildingTaxonomy.CLASSIFICATIONS, or "" (then resolved from [type], or reported). Normalised by ContentBuilder. */
+    val classification: String = "",
+    /** Building-level functional zones (BuildingTaxonomy.ZONES). Validated and normalised by ContentBuilder. */
+    val zones: List<String> = emptyList(),
+    /** Hand-authored rooms for non-procedural buildings; procedural buildings derive theirs from the generated plan. Validated and normalised by ContentBuilder. */
+    val rooms: List<BuildingRoomDef> = emptyList(),
+)
+
+/**
+ * A hand-authored room inside a non-procedural [BuildingDef]. The id must be unique within the
+ * building; zone and access must be BuildingTaxonomy words (validated by ContentBuilder, never
+ * silently dropped); purpose is free text; floor is the storey the room sits on (0 = ground).
+ * [bounds] is optional world-space geometry, for when a pack wants to place a room precisely.
+ */
+@Serializable
+data class BuildingRoomDef(
+    val id: String,
+    val name: String = "",
+    val purpose: String = "",
+    val zone: String = "",
+    val floor: Int = 0,
+    val access: String = "",
+    val bounds: Bounds? = null,
 )
 
 @Serializable
