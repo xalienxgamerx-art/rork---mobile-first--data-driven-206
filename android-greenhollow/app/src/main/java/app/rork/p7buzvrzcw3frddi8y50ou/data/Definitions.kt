@@ -234,6 +234,14 @@ data class BuildingDef(
     val wall: String = "#C9B48A",
     val roof: String = "#6B3F2A",
     val interact: String = "",
+    /** When true, the building is grown from a generated multi-floor tile plan instead of the simple box. */
+    val procedural: Boolean = false,
+    /** Seed for the generator; 0 derives a stable seed from the id, so the same hall always grows the same. */
+    val genSeed: Long = 0,
+    /** Floors (minimum 3), width (17-30 tiles) and depth (12-14 tiles); 0 uses the generator's default range. */
+    val genFloors: Int = 0,
+    val genWidth: Int = 0,
+    val genDepth: Int = 0,
 )
 
 @Serializable

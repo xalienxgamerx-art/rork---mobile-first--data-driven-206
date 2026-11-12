@@ -7,6 +7,7 @@ import app.rork.p7buzvrzcw3frddi8y50ou.data.CreatureDef
 import app.rork.p7buzvrzcw3frddi8y50ou.data.NpcDef
 import app.rork.p7buzvrzcw3frddi8y50ou.data.ProfessionDef
 import app.rork.p7buzvrzcw3frddi8y50ou.data.hexToRgb
+import app.rork.p7buzvrzcw3frddi8y50ou.procgen.BuildingCache
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.systems.CombatSystem
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.systems.CraftingSystem
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.systems.CreatureSystem
@@ -156,8 +157,13 @@ class World(
 
     init {
         for (b in content.buildings.values) {
+            // A procedural building's collision box is its generated ground footprint; the
+            // definition's w/d stay the fallback (and shape the door point) when none was grown.
+            val fp = if (b.procedural) BuildingCache.footprint(b) else null
+            val hw = (fp?.first ?: b.w) / 2f
+            val hd = (fp?.second ?: b.d) / 2f
             val r = atan2(b.x, b.z)
-            boxes += Box(b.x, b.z, b.w / 2f, b.d / 2f, cos(r), sin(r))
+            boxes += Box(b.x, b.z, hw, hd, cos(r), sin(r))
         }
     }
 

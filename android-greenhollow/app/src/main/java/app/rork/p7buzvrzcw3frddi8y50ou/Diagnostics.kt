@@ -1,5 +1,7 @@
 package app.rork.p7buzvrzcw3frddi8y50ou
 
+import app.rork.p7buzvrzcw3frddi8y50ou.procgen.BuildingCache
+import app.rork.p7buzvrzcw3frddi8y50ou.procgen.renderAscii
 import kotlinx.coroutines.flow.MutableStateFlow
 import java.io.File
 import java.text.SimpleDateFormat
@@ -158,6 +160,16 @@ object Diagnostics {
         appendLine("HOUSEHOLDS & FAMILIES")
         appendLine("Households: ${sim.households} (${sim.membershipChanges} membership changes, duties shared out ${sim.dutiesAssigned} times)")
         appendLine("Wishes pursued: ${sim.goalsActive} active, ${sim.goalsCompleted} achieved")
+        appendLine()
+        appendLine("PROCEDURAL BUILDINGS")
+        if (BuildingCache.summaries.isEmpty()) {
+            appendLine("None.")
+        } else {
+            for (s in BuildingCache.summaries.values) {
+                appendLine("${s.id} (\"${s.name}\"): seed ${s.seed}, ${s.floors} floors, ${s.attempts} attempt(s), ${if (s.sound) "sound" else "FAILED: ${s.problems}"}")
+                s.building?.let { appendLine(renderAscii(it, legend = true)) }
+            }
+        }
         appendLine()
         appendLine("VOICE")
         appendLine("Lines voiced this session: ${s.voice.linesVoiced} (${s.voice.errors} failed)")

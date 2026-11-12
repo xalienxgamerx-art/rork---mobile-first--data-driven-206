@@ -1883,6 +1883,22 @@
       "roof": "#6E4630"
     },
     {
+      "id": "manor",
+      "name": "Greywarden Hall",
+      "type": "hall",
+      "x": -52.0,
+      "z": -48.0,
+      "w": 19,
+      "d": 13,
+      "h": 12.0,
+      "wall": "#B99F74",
+      "roof": "#4E3A2C",
+      "procedural": true,
+      "genFloors": 3,
+      "genWidth": 19,
+      "genDepth": 13
+    },
+    {
       "id": "well",
       "name": "The Old Well",
       "type": "well",

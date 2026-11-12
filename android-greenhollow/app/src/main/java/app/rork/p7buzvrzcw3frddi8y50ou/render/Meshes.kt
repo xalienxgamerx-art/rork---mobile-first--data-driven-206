@@ -246,7 +246,11 @@ object WorldMesh {
             m.tri(0f, 1.46f, 0f, cos(a0) * 29f, 1.44f, sin(a0) * 29f, cos(a1) * 29f, 1.44f, sin(a1) * 29f, 0.56f + k, 0.44f + k, 0.30f + k)
         }
 
-        for (b in content.buildings.values) building(m, b)
+        for (b in content.buildings.values) {
+            // A procedural building is grown from its tile plan into the same static batch;
+            // if generation ever fails, it falls back to the simple box so no building vanishes.
+            if (!(b.procedural && BuildingMesh.emit(m, b))) building(m, b)
+        }
         roadside(m)
 
         val clearings = ArrayList<FloatArray>()
