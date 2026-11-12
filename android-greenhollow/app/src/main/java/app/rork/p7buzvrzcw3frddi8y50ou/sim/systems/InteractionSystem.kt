@@ -25,7 +25,6 @@ class InteractionSystem(private val w: World) {
 
     val resources: List<ResourceDef> = w.content.resources.values.toList()
     val objects: List<InteractableDef> = w.content.interactables.values.toList()
-    private val interactBuildings: List<BuildingDef> = w.content.buildings.values.filter { it.interact.isNotEmpty() }
 
     private fun promptFor(o: InteractableDef): String {
         val base = o.prompt.ifBlank {
@@ -56,6 +55,24 @@ class InteractionSystem(private val w: World) {
                 best = make()
             }
         }
+        val active = w.interiors.active
+        if (active != null) {
+            // Indoors: the only things offered are the ways out and the building's own
+            // services, which moved in with the interior. No people, no creatures, no nodes.
+            val b = w.content.buildings[active.buildingId]
+            val name = b?.name ?: "the building"
+            for (e in w.interiors.entrances.entrances(active.buildingId)) {
+                consider(e.inX, e.inZ, 2.6f) { Target("exit", e.id, "Leave $name") }
+            }
+            if (b != null && (b.interact == "rest" || b.interact == "forge")) {
+                val spot = w.interiors.serviceSpot(active)
+                val label = if (b.interact == "rest") "Rest by the hearth of $name" else "Use the forge"
+                consider(spot[0], spot[1], 5f) { Target("building", b.id, label) }
+            }
+            w.target = best
+            w.hostile = null
+            return
+        }
         for (n in w.npcs) {
             if (n.s.indoors) continue
             consider(n.s.x, n.s.z, 3.4f) { Target("npc", n.def.id, "Talk to ${n.def.name}") }
@@ -67,7 +84,18 @@ class InteractionSystem(private val w: World) {
         for (o in objects) {
             consider(o.x, o.z, 3f) { Target("object", o.id, promptFor(o)) }
         }
-        for (b in interactBuildings) {
+        for (b in w.content.buildings.values) {
+            // A building with a usable interior offers its door instead of its outdoor service:
+            // the rest and the forge wait inside now.
+            val doors = w.interiors.entrances.entrances(b.id)
+            if (doors.isNotEmpty()) {
+                val dx = p.x
+                val dz = p.z
+                val e = doors.minByOrNull { (it.outX - dx) * (it.outX - dx) + (it.outZ - dz) * (it.outZ - dz) } ?: continue
+                consider(e.outX, e.outZ, 4.2f) { Target("door", e.id, "Enter ${b.name}") }
+                continue
+            }
+            if (b.interact.isEmpty()) continue
             val door = if (b.type == "well") floatArrayOf(b.x, b.z) else w.doorOf(b)
             val label = when (b.interact) {
                 "rest" -> "Rest at ${b.name} (5 gold)"
@@ -101,6 +129,8 @@ class InteractionSystem(private val w: World) {
             "npc" -> w.npcById[t.id]?.let { w.dialogue.start(it) }
             "resource" -> w.content.resources[t.id]?.let { harvest(it) }
             "building" -> w.content.buildings[t.id]?.let { useBuilding(it) }
+            "door" -> w.interiors.enterByEntranceId(t.id)
+            "exit" -> w.interiors.exit(w.interiors.entrances.byId(t.id))
             "object" -> w.content.interactables[t.id]?.let { useObject(it) }
         }
     }

@@ -291,6 +291,12 @@ class RenderFrame {
     /** three rgb triples per actor: skin, cloth, hair */
     val acol = FloatArray(MAX_ACTORS * 9)
 
+    /** True while the player is inside a building's interior instance; the renderer then draws
+     *  the interior VBO instead of the overworld batch and skips land, water, actors and nodes. */
+    var inside = false
+    /** The interior instance id currently rendered ("int:<building id>"). */
+    var interiorId = ""
+
     var nodeCount = 0
     val nx = FloatArray(MAX_NODES)
     val ny = FloatArray(MAX_NODES)

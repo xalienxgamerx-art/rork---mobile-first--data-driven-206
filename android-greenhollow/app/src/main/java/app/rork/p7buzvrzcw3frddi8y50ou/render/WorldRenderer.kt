@@ -34,6 +34,9 @@ class WorldRenderer(
     private var skyProgram = 0
     private var worldVbo = 0
     private var worldCount = 0
+    private var interiorVbo = 0
+    private var interiorCount = 0
+    private var interiorFor: InteriorMesh.Entry? = null
     private var cubeVbo = 0
     private var skyVbo = 0
     private var waterVbo = 0
@@ -116,9 +119,9 @@ class WorldRenderer(
         sSunCol = GLES20.glGetUniformLocation(skyProgram, "uSunCol")
         sGround = GLES20.glGetUniformLocation(skyProgram, "uGround")
 
-        val ids = IntArray(4)
-        GLES20.glGenBuffers(4, ids, 0)
-        worldVbo = ids[0]; cubeVbo = ids[1]; skyVbo = ids[2]; waterVbo = ids[3]
+        val ids = IntArray(5)
+        GLES20.glGenBuffers(5, ids, 0)
+        worldVbo = ids[0]; cubeVbo = ids[1]; skyVbo = ids[2]; waterVbo = ids[3]; interiorVbo = ids[4]
         val cube = WorldMesh.cube()
         upload(cubeVbo, cube.data, cube.size)
         upload(skyVbo, floatArrayOf(-1f, -1f, 1f, -1f, -1f, 1f, -1f, 1f, 1f, -1f, 1f, 1f), 12)
@@ -226,8 +229,23 @@ class WorldRenderer(
         GLES20.glUniform3f(uTint, 1f, 1f, 1f)
         GLES20.glUniformMatrix4fv(uMvp, 1, false, vp, 0)
         GLES20.glUniformMatrix4fv(uModel, 1, false, identity, 0)
-        bind(worldVbo)
-        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, worldCount)
+        // Land — or, with the player indoors, the interior instance's own geometry in its own
+        // space, uploaded only when a different interior became active.
+        if (f.inside) {
+            val entry = InteriorMesh.get(e.activeInterior())
+            if (entry != null) {
+                if (entry !== interiorFor) {
+                    upload(interiorVbo, entry.mesh.data, entry.mesh.size)
+                    interiorFor = entry
+                    interiorCount = entry.vertexCount
+                }
+                bind(interiorVbo)
+                GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, interiorCount)
+            }
+        } else {
+            bind(worldVbo)
+            GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, worldCount)
+        }
 
         // Everything that moves is assembled from one cube.
         bind(cubeVbo)
@@ -241,19 +259,21 @@ class WorldRenderer(
             if (f.akind[i] == 0) humanoid(f, i, d2 > 80f * 80f) else quadruped(f, i)
         }
 
-        // The Silverrun.
-        GLES20.glEnable(GLES20.GL_BLEND)
-        GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
-        GLES20.glDepthMask(false)
-        GLES20.glUniform1f(uAlpha, 0.72f)
-        GLES20.glUniform3f(uTint, 0.7f + horizon[0] * 0.5f, 0.8f + horizon[1] * 0.3f, 0.9f + horizon[2] * 0.2f)
-        GLES20.glUniformMatrix4fv(uMvp, 1, false, vp, 0)
-        GLES20.glUniformMatrix4fv(uModel, 1, false, identity, 0)
-        bind(waterVbo)
-        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, 6)
-        GLES20.glDepthMask(true)
-        GLES20.glDisable(GLES20.GL_BLEND)
-        GLES20.glUniform1f(uAlpha, 1f)
+        // The Silverrun — there is no river inside a house.
+        if (!f.inside) {
+            GLES20.glEnable(GLES20.GL_BLEND)
+            GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
+            GLES20.glDepthMask(false)
+            GLES20.glUniform1f(uAlpha, 0.72f)
+            GLES20.glUniform3f(uTint, 0.7f + horizon[0] * 0.5f, 0.8f + horizon[1] * 0.3f, 0.9f + horizon[2] * 0.2f)
+            GLES20.glUniformMatrix4fv(uMvp, 1, false, vp, 0)
+            GLES20.glUniformMatrix4fv(uModel, 1, false, identity, 0)
+            bind(waterVbo)
+            GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, 6)
+            GLES20.glDepthMask(true)
+            GLES20.glDisable(GLES20.GL_BLEND)
+            GLES20.glUniform1f(uAlpha, 1f)
+        }
 
         if (f.firstPersonWeapon) weapon(f)
 

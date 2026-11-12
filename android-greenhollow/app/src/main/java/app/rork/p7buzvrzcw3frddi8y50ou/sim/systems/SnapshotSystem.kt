@@ -64,7 +64,8 @@ class SnapshotSystem(
             magic = p.magic, maxMagic = prog.maxMagic,
             timeLabel = Calendar.label(save.minutes),
             clock = Calendar.clock(save.minutes),
-            location = w.discovery.currentLocation()?.name ?: "The Wilds",
+            location = w.interiors.active?.let { a -> "${content.buildings[a.buildingId]?.name ?: "Somewhere"} — indoors" }
+                ?: w.discovery.currentLocation()?.name ?: "The Wilds",
             prompt = w.target?.label,
             promptKind = w.target?.kind.orEmpty(),
             thirdPerson = p.thirdPerson,
@@ -350,6 +351,9 @@ class SnapshotSystem(
     }
 
     fun fillFrame(f: RenderFrame) {
+        val inside = w.interiors.active
+        f.inside = inside != null
+        f.interiorId = inside?.instanceId.orEmpty()
         val cp = cos(p.pitch)
         val dx = sin(p.yaw) * cp
         val dy = sin(p.pitch)
@@ -359,7 +363,11 @@ class SnapshotSystem(
             var cx = p.x - dx * 4.2f
             var cy = eyeY - dy * 4.2f + 0.7f
             var cz = p.z - dz * 4.2f
-            val floor = max(Terrain.height(cx, cz), Terrain.WATER) + 0.4f
+            val floor = if (inside != null) {
+                w.interiors.groundY(cx, cz, eyeY) + 0.4f
+            } else {
+                max(Terrain.height(cx, cz), Terrain.WATER) + 0.4f
+            }
             if (cy < floor) cy = floor
             cx = cx.coerceIn(-Terrain.HALF + 2f, Terrain.HALF - 2f)
             cz = cz.coerceIn(-Terrain.HALF + 2f, Terrain.HALF - 2f)
@@ -403,8 +411,10 @@ class SnapshotSystem(
             )
         }
         val far = 170f * 170f
+        // Indoors the overworld's people and creatures are elsewhere by definition: their
+        // coordinates would be meaningless in the interior's local space, so none are sent.
         for (n in w.npcs) {
-            if (n.s.indoors) continue
+            if (n.s.indoors || inside != null) continue
             val ddx = n.s.x - p.x
             val ddz = n.s.z - p.z
             if (ddx * ddx + ddz * ddz > far) continue
@@ -412,7 +422,7 @@ class SnapshotSystem(
             put(n.s.x, w.groundY(n.s.x, n.s.z), n.s.z, n.yaw, if (n.moving) n.phase else 0f, 0.94f + (n.def.age % 7) * 0.012f, 0, flags, n.skin, n.cloth, n.hair)
         }
         for (c in w.creatures) {
-            if (c.s.health <= 0f) continue
+            if (c.s.health <= 0f || inside != null) continue
             val ddx = c.s.x - p.x
             val ddz = c.s.z - p.z
             if (ddx * ddx + ddz * ddz > far) continue
@@ -424,7 +434,7 @@ class SnapshotSystem(
         val near = 140f * 140f
         var k = 0
         for (r in w.interaction.resources) {
-            if (k >= RenderFrame.MAX_NODES) break
+            if (k >= RenderFrame.MAX_NODES || inside != null) break
             if ((save.harvested[r.id] ?: 0.0) > save.minutes) continue
             val ddx = r.x - p.x
             val ddz = r.z - p.z
@@ -434,7 +444,7 @@ class SnapshotSystem(
             k++
         }
         for (o in w.interaction.objects) {
-            if (k >= RenderFrame.MAX_NODES) break
+            if (k >= RenderFrame.MAX_NODES || inside != null) break
             val ddx = o.x - p.x
             val ddz = o.z - p.z
             if (ddx * ddx + ddz * ddz > near) continue

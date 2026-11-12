@@ -3,7 +3,7 @@ package app.rork.p7buzvrzcw3frddi8y50ou.sim
 import kotlinx.serialization.Serializable
 
 /** Everything in this file is persistent instance state. It references definitions only by id. */
-const val SAVE_VERSION = 4
+const val SAVE_VERSION = 5
 
 /** The player takes part in the social world under this id, like any villager. */
 const val PLAYER_ID = "player"
@@ -373,6 +373,20 @@ data class Appearance(
     var cloth: String = "#5E6B45",
 )
 
+/** A remembered interior instance: its identity and refs, never its transient geometry. */
+@Serializable
+data class InteriorSave(
+    /** The interior instance reference, "int:<building id>". */
+    val instanceId: String,
+    var buildingId: String,
+    /** Seed the interior's layout was generated from (deterministic; kept for reports). */
+    val seed: Long = 0,
+    /** World minute the player last entered. */
+    var lastVisited: Double = 0.0,
+    /** How many times the player has entered. */
+    var visits: Int = 0,
+)
+
 @Serializable
 data class PlayerState(
     var name: String = "Wanderer",
@@ -383,6 +397,14 @@ data class PlayerState(
     var z: Float = 122f,
     var yaw: Float = 0f,
     var pitch: Float = 0f,
+    /** The interior instance the player is inside, "int:<id>", or "" for the overworld.
+     *  While set, x/y/z/yaw are interior-local coordinates. */
+    var location: String = "",
+    /** Where the player stood before stepping inside; the way back out is here. */
+    var returnX: Float = 0f,
+    var returnY: Float = 0f,
+    var returnZ: Float = 0f,
+    var returnYaw: Float = 0f,
     var health: Float = 100f,
     var stamina: Float = 100f,
     var magic: Float = 100f,
@@ -494,6 +516,9 @@ data class SaveGame(
     val social: SocialSave = SocialSave(),
     /** The households of the vale: who lives under which roof, and how their shared life goes. */
     val households: MutableList<HouseholdSave> = mutableListOf(),
+    /** Interior instances the player has entered, keyed "int:<building id>". Identities and
+     *  references only — layouts are re-derived deterministically, meshes are never saved. */
+    val interiors: MutableMap<String, InteriorSave> = mutableMapOf(),
     /** The family bonds between people, kept in their canonical direction. */
     val kin: KinshipSave = KinshipSave(),
     /** Seed this world was started with. Kept for reports. */

@@ -30,7 +30,9 @@ class PlayerSystem(private val w: World) {
         val my = input.moveY
         val mag = min(1f, sqrt(mx * mx + my * my))
         val blocking = input.block
-        w.swimming = Terrain.height(p.x, p.z) < Terrain.WATER - 1.0f
+        val inside = w.interiors.active
+        // There is no water indoors, and the ground under the player is the interior's own.
+        w.swimming = inside == null && Terrain.height(p.x, p.z) < Terrain.WATER - 1.0f
         val sprinting = mag > 0.9f && p.stamina > 4f && !w.swimming && !blocking
         var speed = when {
             w.swimming -> 2.2f
@@ -46,11 +48,13 @@ class PlayerSystem(private val w: World) {
             val rz = sin(p.yaw)
             tmpPos[0] = p.x + (fx * my + rx * mx) * speed * dt
             tmpPos[1] = p.z + (fz * my + rz * mx) * speed * dt
-            w.collide(tmpPos, 0.45f)
-            val r = sqrt(tmpPos[0] * tmpPos[0] + tmpPos[1] * tmpPos[1])
-            if (r > Terrain.LIMIT) {
-                tmpPos[0] *= Terrain.LIMIT / r
-                tmpPos[1] *= Terrain.LIMIT / r
+            if (inside != null) w.interiors.collide(tmpPos, 0.45f) else w.collide(tmpPos, 0.45f)
+            if (inside == null) {
+                val r = sqrt(tmpPos[0] * tmpPos[0] + tmpPos[1] * tmpPos[1])
+                if (r > Terrain.LIMIT) {
+                    tmpPos[0] *= Terrain.LIMIT / r
+                    tmpPos[1] *= Terrain.LIMIT / r
+                }
             }
             p.x = tmpPos[0]
             p.z = tmpPos[1]
@@ -68,7 +72,7 @@ class PlayerSystem(private val w: World) {
             }
         }
 
-        val ground = Terrain.height(p.x, p.z)
+        val ground = if (inside != null) w.interiors.groundY(p.x, p.z, p.y) else Terrain.height(p.x, p.z)
         if (w.swimming) {
             val float = Terrain.WATER - 1.25f
             p.y += (max(float, ground) - p.y) * min(1f, dt * 5f)

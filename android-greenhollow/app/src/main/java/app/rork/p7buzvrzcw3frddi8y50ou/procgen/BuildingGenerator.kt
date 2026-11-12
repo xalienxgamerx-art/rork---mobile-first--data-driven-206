@@ -25,6 +25,12 @@ import kotlin.random.Random
  */
 const val TILE_SIZE = 1f
 
+/** World units one storey rises; shared by the exterior and interior geometry emitters. */
+const val STORY = 3.2f
+
+/** Height of a door opening. */
+const val DOOR_H = 2.3f
+
 // ---------------------------------------------------------------------------
 // Tiles
 // ---------------------------------------------------------------------------

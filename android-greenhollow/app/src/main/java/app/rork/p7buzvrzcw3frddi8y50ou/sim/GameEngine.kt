@@ -94,9 +94,19 @@ class GameEngine(val content: ContentRegistry, val save: SaveGame) {
         w.creatureSim.build()
         w.discovery.bind()
         val p = save.player
-        p.y = max(Terrain.height(p.x, p.z), p.y)
+        if (p.location.isEmpty()) {
+            p.y = max(Terrain.height(p.x, p.z), p.y)
+        } else {
+            // The world was saved with the player inside a building: reactivate that interior
+            // (collision and spawn logic), leaving the interior-local coordinates untouched.
+            w.interiors.restore()
+        }
         snapshot.publish(0f, force = true)
     }
+
+    /** The interior instance the player is inside, or null outdoors; the renderer reads this
+     *  once per frame under the lock, so it never races a transition. */
+    fun activeInterior(): ActiveInterior? = synchronized(lock) { w.interiors.active }
 
     fun submit(c: Command) {
         commands += c

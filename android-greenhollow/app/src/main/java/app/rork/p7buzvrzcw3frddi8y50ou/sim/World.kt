@@ -5,6 +5,7 @@ import app.rork.p7buzvrzcw3frddi8y50ou.data.BuildingDef
 import app.rork.p7buzvrzcw3frddi8y50ou.data.BuildingDirectory
 import app.rork.p7buzvrzcw3frddi8y50ou.data.ContentRegistry
 import app.rork.p7buzvrzcw3frddi8y50ou.data.CreatureDef
+import app.rork.p7buzvrzcw3frddi8y50ou.data.LogicalBuilding
 import app.rork.p7buzvrzcw3frddi8y50ou.data.NpcDef
 import app.rork.p7buzvrzcw3frddi8y50ou.data.ProfessionDef
 import app.rork.p7buzvrzcw3frddi8y50ou.data.hexToRgb
@@ -124,6 +125,9 @@ class World(
 
     /** The semantic layer: classifications, functional zones, rooms and ext/int instance ids per building. */
     val buildingLogic = BuildingDirectory(content)
+
+    /** The interior-instance system: entrances, the one loaded interior, transitions. */
+    val interiors = InteriorSystem(this)
 
     // Runtime only. None of this is saved.
     var vy = 0f
@@ -332,6 +336,40 @@ object SaveBinding {
         save.rumours.removeAll { !seenRumours.add(it.id) }
 
         bindSocial(save, content)
+
+        // Interiors: the visited-building ledger is keyed by instance id and carries a building
+        // reference; both are rewritten to full form, and a building nothing defines is reported
+        // and kept, as with every other reference.
+        for (key in save.interiors.keys.toList()) {
+            val rec = save.interiors[key] ?: continue
+            val bid = content.buildings.canonical(rec.buildingId)
+            logUnresolved("building", rec.buildingId, content.buildings[bid] != null)
+            rec.buildingId = bid
+            val newKey = "${LogicalBuilding.INTERIOR_PREFIX}$bid"
+            if (newKey == key) continue
+            save.interiors.remove(key)
+            if (newKey !in save.interiors) save.interiors[newKey] = rec
+        }
+        // The player's location: inside an instance id nothing resolves means they go back
+        // outside, at their recorded return spot, rather than stand in a room that no longer
+        // exists. A known id is rewritten to its full form.
+        val loc = p.location
+        if (loc.isNotEmpty()) {
+            val bid = loc.removePrefix(LogicalBuilding.INTERIOR_PREFIX)
+            val canon = content.buildings.canonical(bid)
+            if (content.buildings[canon] == null) {
+                logUnresolved("building", bid, false)
+                if (p.returnX != 0f || p.returnZ != 0f) {
+                    p.x = p.returnX; p.z = p.returnZ; p.yaw = p.returnYaw
+                } else {
+                    p.x = 0f; p.z = 122f; p.yaw = 0f
+                }
+                p.y = maxOf(p.returnY, Terrain.height(p.x, p.z))
+                p.location = ""
+            } else {
+                p.location = "${LogicalBuilding.INTERIOR_PREFIX}$canon"
+            }
+        }
 
         if (save.rngState == 0L) save.rngState = if (save.seed != 0L) save.seed else 0x5EED5EEDL + save.nextUid
     }

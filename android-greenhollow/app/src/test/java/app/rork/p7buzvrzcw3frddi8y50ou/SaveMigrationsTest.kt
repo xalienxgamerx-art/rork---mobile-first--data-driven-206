@@ -41,7 +41,7 @@ class SaveMigrationsTest {
     fun `a v1 save upgrades with slots, skills, attributes and a seed in place`() {
         val migrated = SaveMigrations.migrate(json.parseToJsonElement(v1Save()).jsonObject)
 
-        assertEquals(4, SaveMigrations.versionOf(migrated))
+        assertEquals(5, SaveMigrations.versionOf(migrated))
         val player = migrated["player"]!!.jsonObject
         val equipped = player["equipped"]!!.jsonObject
         assertEquals("u3", equipped["main_hand"]!!.jsonPrimitive.content)
@@ -68,9 +68,9 @@ class SaveMigrationsTest {
 
     @Test
     fun `a save from a newer version of the game is refused with its version`() {
-        val root = json.parseToJsonElement("""{"version": 5}""").jsonObject
+        val root = json.parseToJsonElement("""{"version": 6}""").jsonObject
         val e = assertThrows(NewerSaveException::class.java) { SaveMigrations.migrate(root) }
-        assertEquals(5, e.version)
+        assertEquals(6, e.version)
     }
 
     @Test
@@ -87,7 +87,7 @@ class SaveMigrationsTest {
         """.trimIndent()
         val migrated = SaveMigrations.migrate(json.parseToJsonElement(v2).jsonObject)
 
-        assertEquals(4, SaveMigrations.versionOf(migrated))
+        assertEquals(5, SaveMigrations.versionOf(migrated))
         val list = migrated["npcs"] as kotlinx.serialization.json.JsonArray
         for (npc in list) {
             val lastSim = npc.jsonObject["lastSim"]!!.jsonPrimitive.double
@@ -115,7 +115,7 @@ class SaveMigrationsTest {
         """.trimIndent()
         val migrated = SaveMigrations.migrate(json.parseToJsonElement(v3).jsonObject)
 
-        assertEquals(4, SaveMigrations.versionOf(migrated))
+        assertEquals(5, SaveMigrations.versionOf(migrated))
         val social = migrated["social"]!!.jsonObject
         val rels = social["relationships"]!!.jsonObject
         // Hawk's warmth for Elsa becomes an opinion keyed holder>other, directional by convention.

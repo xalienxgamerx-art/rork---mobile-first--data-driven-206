@@ -4,7 +4,9 @@ import app.rork.p7buzvrzcw3frddi8y50ou.data.BuildingDef
 import app.rork.p7buzvrzcw3frddi8y50ou.data.hexToRgb
 import app.rork.p7buzvrzcw3frddi8y50ou.procgen.Building
 import app.rork.p7buzvrzcw3frddi8y50ou.procgen.BuildingCache
+import app.rork.p7buzvrzcw3frddi8y50ou.procgen.DOOR_H
 import app.rork.p7buzvrzcw3frddi8y50ou.procgen.FloorPlan
+import app.rork.p7buzvrzcw3frddi8y50ou.procgen.STORY
 import app.rork.p7buzvrzcw3frddi8y50ou.procgen.TILE_SIZE
 import app.rork.p7buzvrzcw3frddi8y50ou.procgen.Tile
 import app.rork.p7buzvrzcw3frddi8y50ou.sim.Terrain
@@ -24,8 +26,6 @@ import kotlin.math.atan2
  * Empty tiles make nothing.
  */
 object BuildingMesh {
-    private const val STORY = 3.2f
-    private const val DOOR_H = 2.3f
     private const val WINDOW_SILL = 0.9f
     private const val WINDOW_TOP = 1.9f
     private val TIMBER = floatArrayOf(0.30f, 0.21f, 0.14f)

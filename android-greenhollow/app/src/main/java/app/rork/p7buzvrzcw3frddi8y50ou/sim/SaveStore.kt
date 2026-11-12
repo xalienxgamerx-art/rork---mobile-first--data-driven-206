@@ -44,7 +44,7 @@ class NewerSaveException(val version: Int) : Exception("Saved by a newer version
  * old layout. Pure: no files, so each step can be unit tested with a JSON string.
  */
 object SaveMigrations {
-    private val steps: Map<Int, (JsonObject) -> JsonObject> = mapOf(1 to ::v1ToV2, 2 to ::v2ToV3, 3 to ::v3ToV4)
+    private val steps: Map<Int, (JsonObject) -> JsonObject> = mapOf(1 to ::v1ToV2, 2 to ::v2ToV3, 3 to ::v3ToV4, 4 to ::v4ToV5)
 
     fun versionOf(root: JsonObject): Int = root["version"]?.jsonPrimitive?.intOrNull ?: 1
 
@@ -166,6 +166,18 @@ object SaveMigrations {
     }
 
     private fun abs(v: Float): Float = if (v < 0f) -v else v
+
+    /**
+     * Version 5 gives buildings real interiors: the player gains an interior location and the
+     * way back outside, and the save remembers which interiors they have entered. Old saves
+     * simply start outdoors — the new fields decode from their defaults, and the interiors
+     * ledger begins empty. No geometry or layout is stored, so nothing else moves.
+     */
+    private fun v4ToV5(root: JsonObject): JsonObject {
+        val out = LinkedHashMap<String, JsonElement>(root)
+        if ("interiors" !in out) out["interiors"] = JsonObject(emptyMap())
+        return JsonObject(out)
+    }
 }
 
 /** Versioned, crash-safe persistence for the living world and for player preferences.
